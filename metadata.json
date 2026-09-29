@@ -1,0 +1,6 @@
+{
+  "name": "Absensi Guru SMA NEGERI 1 JULOK",
+  "description": "Sistem Informasi Absensi Guru SMA NEGERI 1 JULOK dengan presensi mandiri, kamera selfie kelas, jadwal otomatis, rekap piket, dan laporan PDF.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
