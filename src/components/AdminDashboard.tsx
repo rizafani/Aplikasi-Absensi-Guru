@@ -1125,7 +1125,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2.5">
             <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              <strong>Aturan Pembuatan Akun Otomatis:</strong> Username dibuat secara otomatis dari nama lengkap guru dengan menghapus gelar akademik (misal: <em>"Anis Kurli, S.Pd"</em> &rarr; <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-blue-300">aniskurli</span>). Password default menggunakan prefix <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-blue-300">piket</span> diikuti 4 digit terakhir NIP. Anda dapat menyesuaikan username, password, dan hari tugas pada tombol <strong>Edit</strong>.
+              <strong>Aturan Pembuatan Akun Otomatis:</strong> Username dibuat secara otomatis dari nama lengkap guru dengan menghapus gelar akademik (misal: <em>"Anis Kurli, S.Pd"</em> &rarr; <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-blue-300">aniskurli</span>). Password akun menggunakan prefix <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-blue-300">piket</span> diikuti 4 digit terakhir NIP. Anda dapat menyesuaikan username, password, dan hari tugas pada tombol <strong>Edit</strong>.
             </div>
           </div>
 

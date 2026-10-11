@@ -337,16 +337,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Password default: <strong className="text-slate-700 font-mono">Kutabinjei88*</strong></span>
-                    <button
-                      type="button"
-                      onClick={() => setAdminPassword('Kutabinjei88*')}
-                      className="text-blue-600 hover:underline font-medium text-[11px] cursor-pointer"
-                    >
-                      Isi Otomatis
-                    </button>
-                  </div>
                 </div>
 
                 {/* Submit Button */}
@@ -435,13 +425,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               {/* Password Input */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="mb-1.5">
                   <label className="block text-xs font-semibold text-slate-700">
                     Password Piket
                   </label>
-                  <span className="text-[11px] text-slate-400">
-                    Default: piket + 4 digit NIP
-                  </span>
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
