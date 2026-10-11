@@ -255,7 +255,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             Area Khusus Administrator
           </h2>
           <p className="text-slate-600 text-sm mt-2 max-w-md mx-auto leading-relaxed">
-            Halaman pengaturan guru, kelas, mapel, dan jadwal mengajar ini hanya dapat diakses melalui login Google dengan akun resmi:
+            Halaman pengaturan master guru, kelas, mapel, dan jadwal mengajar ini hanya dapat diakses melalui login Administrator dengan email resmi:
           </p>
           <div className="my-4 inline-block px-4 py-2 bg-blue-50 border border-blue-200 rounded-xl font-mono font-bold text-blue-900 text-sm">
             rizafani@gmail.com
@@ -263,10 +263,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="pt-2">
             <button
               onClick={onOpenAuth}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-md transition-all inline-flex items-center gap-2"
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm rounded-xl shadow-md transition-all inline-flex items-center gap-2 cursor-pointer"
             >
               <LogIn className="w-4 h-4" />
-              Masuk dengan Google (rizafani@gmail.com)
+              Login Administrator (rizafani@gmail.com)
             </button>
           </div>
         </div>

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { auth, googleProvider } from '../firebase';
 import { signInWithPopup, signOut } from 'firebase/auth';
+import { Storage } from '../utils/storage';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ interface AuthModalProps {
 }
 
 const AUTHORIZED_ADMIN_EMAIL = 'rizafani@gmail.com';
+const DEFAULT_ADMIN_PASSWORD = 'Kutabinjei88*';
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
@@ -41,6 +43,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isSigningInGoogle, setIsSigningInGoogle] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Admin manual form state
+  const [adminEmail, setAdminEmail] = useState<string>(AUTHORIZED_ADMIN_EMAIL);
+  const [adminPassword, setAdminPassword] = useState<string>('');
+  const [showAdminPassword, setShowAdminPassword] = useState<boolean>(false);
+
   // Piket form state
   const [piketUsername, setPiketUsername] = useState<string>('');
   const [piketPassword, setPiketPassword] = useState<string>('');
@@ -50,7 +57,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  // 1. ADMIN GOOGLE SIGN IN (STRICT RESTRICTION: ONLY rizafani@gmail.com)
+  // 1. ADMIN MANUAL LOGIN (Email: rizafani@gmail.com & Password: Kutabinjei88*)
+  const handleManualAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    const inputEmail = adminEmail.trim().toLowerCase();
+    const inputPassword = adminPassword.trim();
+
+    if (!inputEmail || !inputPassword) {
+      setAuthError('Silakan masukkan email dan password Administrator.');
+      return;
+    }
+
+    if (inputEmail !== AUTHORIZED_ADMIN_EMAIL.toLowerCase()) {
+      setAuthError(
+        `Akses Ditolak: Hanya email ${AUTHORIZED_ADMIN_EMAIL} yang berhak login sebagai Admin. Akun "${adminEmail}" tidak memiliki izin akses Administrator SMAN 1 JULOK.`
+      );
+      return;
+    }
+
+    const validPassword = Storage.getAdminPassword() || DEFAULT_ADMIN_PASSWORD;
+    if (inputPassword !== validPassword) {
+      setAuthError(
+        'Password Administrator salah. Pastikan penulisan huruf besar, kecil, angka, dan simbol (Kutabinjei88*) dimasukkan dengan benar.'
+      );
+      return;
+    }
+
+    // Validated Admin Session
+    onLogin({
+      role: 'ADMIN',
+      email: AUTHORIZED_ADMIN_EMAIL,
+      name: 'Riza Fani, S.Pd., M.Pd. (Admin)'
+    });
+    onClose();
+  };
+
+  // 2. ADMIN GOOGLE SIGN IN (ALTERNATIVE QUICK LOGIN: ONLY rizafani@gmail.com)
   const handleGoogleAdminLogin = async () => {
     setIsSigningInGoogle(true);
     setAuthError(null);
@@ -191,8 +235,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   : 'text-blue-100 hover:text-white'
               }`}
             >
-              <Mail className="w-4 h-4" />
-              Admin (Google)
+              <ShieldCheck className="w-4 h-4" />
+              Admin
             </button>
             <button
               type="button"
@@ -226,37 +270,107 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
 
           {tab === 'admin' ? (
-            /* ADMIN TAB */
-            <div className="space-y-5">
-              <div className="p-4 bg-blue-50/80 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
-                <span className="font-bold flex items-center gap-1.5 text-blue-950 mb-1.5">
+            /* ADMIN TAB - MANUAL LOGIN WITH EMAIL & PASSWORD */
+            <div className="space-y-4">
+              <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
+                <div className="flex items-center gap-1.5 font-bold text-blue-950 mb-1">
                   <Lock className="w-4 h-4 text-blue-600" />
-                  Akses Khusus Administrator:
-                </span>
-                Login Admin diwajibkan menggunakan akun Google resmi yang berwenang:
-                <div className="mt-2 font-mono font-bold bg-white px-3 py-2 rounded-lg border border-blue-200 text-blue-900 flex items-center justify-between shadow-2xs">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{AUTHORIZED_ADMIN_EMAIL}</span>
-                  </div>
-                  <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-semibold">
-                    Wajib
-                  </span>
+                  <span>Login Manual Administrator</span>
                 </div>
-                <p className="mt-2 text-[11px] text-slate-600">
-                  Sistem secara otomatis menolak email selain{' '}
-                  <strong className="text-slate-900">{AUTHORIZED_ADMIN_EMAIL}</strong>.
+                <p className="text-slate-600 text-[11.5px] leading-relaxed">
+                  Masukkan Email dan Password resmi Administrator untuk mengakses panel master guru, kelas, mata pelajaran, dan jadwal mengajar.
                 </p>
               </div>
 
-              <div className="space-y-3">
+              <form onSubmit={handleManualAdminLogin} className="space-y-3.5">
+                {/* Email Input */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Email Administrator
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      placeholder="rizafani@gmail.com"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2.5 text-sm border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 font-mono"
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Email resmi: <strong className="text-blue-800 font-mono font-semibold">rizafani@gmail.com</strong>
+                  </p>
+                </div>
+
+                {/* Password Input */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Password Administrator
+                    </label>
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <KeyRound className="w-4 h-4" />
+                    </div>
+                    <input
+                      type={showAdminPassword ? 'text' : 'password'}
+                      required
+                      placeholder="Masukkan password admin"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      className="w-full pl-9 pr-10 py-2.5 text-sm border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminPassword(!showAdminPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                      tabIndex={-1}
+                      title={showAdminPassword ? 'Sembunyikan password' : 'Lihat password'}
+                    >
+                      {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>Password default: <strong className="text-slate-700 font-mono">Kutabinjei88*</strong></span>
+                    <button
+                      type="button"
+                      onClick={() => setAdminPassword('Kutabinjei88*')}
+                      className="text-blue-600 hover:underline font-medium text-[11px] cursor-pointer"
+                    >
+                      Isi Otomatis
+                    </button>
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm rounded-xl shadow-md transition-all active:scale-[0.99] cursor-pointer"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Masuk sebagai Administrator
+                </button>
+              </form>
+
+              {/* Divider & Google Sign-In Fallback */}
+              <div className="pt-2 border-t border-slate-200">
+                <div className="text-center text-[11px] text-slate-400 mb-2">
+                  Atau login cepat menggunakan Akun Google:
+                </div>
                 <button
                   type="button"
                   disabled={isSigningInGoogle}
                   onClick={handleGoogleAdminLogin}
-                  className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-slate-300 rounded-xl bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-semibold text-sm shadow-sm transition-all active:scale-[0.99] disabled:opacity-60 cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2.5 py-2.5 px-4 border border-slate-300 rounded-xl bg-slate-50 hover:bg-white active:bg-slate-100 text-slate-700 font-medium text-xs shadow-2xs transition-all active:scale-[0.99] disabled:opacity-60 cursor-pointer"
                 >
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -277,13 +391,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <span>
                     {isSigningInGoogle
                       ? 'Memverifikasi Akun Google...'
-                      : `Masuk dengan Google (${AUTHORIZED_ADMIN_EMAIL})`}
+                      : `Masuk Cepat Google (${AUTHORIZED_ADMIN_EMAIL})`}
                   </span>
                 </button>
               </div>
 
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500 leading-relaxed">
-                Hak akses admin mencakup import guru, kelola jadwal mengajar, pengaturan akun piket guru, dan laporan resmi.
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500 leading-relaxed text-center">
+                Hak akses admin mencakup import master data guru, jadwal, kredensial piket, dan laporan presensi.
               </div>
             </div>
           ) : (

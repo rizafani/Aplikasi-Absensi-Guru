@@ -15,6 +15,7 @@ const STORAGE_KEYS = {
   PIKET_ACCOUNTS: 'sman1julok_piket_accounts_v1',
   SESSION: 'sman1julok_session_v1',
   LOGOS: 'sman1julok_logos_v2',
+  ADMIN_PASSWORD: 'sman1julok_admin_password_v1',
 };
 
 function safeGet<T>(key: string, fallback: T): T {
@@ -113,6 +114,13 @@ export const Storage = {
 
   saveSchoolLogos(logos: SchoolLogos): void {
     safeSet(STORAGE_KEYS.LOGOS, logos);
+  },
+
+  getAdminPassword(): string {
+    return safeGet<string>(STORAGE_KEYS.ADMIN_PASSWORD, 'Kutabinjei88*');
+  },
+  saveAdminPassword(password: string): void {
+    safeSet(STORAGE_KEYS.ADMIN_PASSWORD, password);
   },
 
   clearAll(): void {
