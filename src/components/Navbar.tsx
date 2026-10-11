@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserSession } from '../types';
+import { UserSession, SchoolLogos } from '../types';
 import {
   GraduationCap,
   CalendarCheck,
@@ -10,7 +10,9 @@ import {
   LogIn,
   LogOut,
   Shield,
-  Clock
+  Clock,
+  CloudCheck,
+  RefreshCw
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -19,6 +21,10 @@ interface NavbarProps {
   session: UserSession;
   onOpenAuth: () => void;
   onLogout: () => void;
+  isCloudSynced?: boolean;
+  onManualSync?: () => void;
+  isManualSyncing?: boolean;
+  logos?: SchoolLogos;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -26,7 +32,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   session,
   onOpenAuth,
-  onLogout
+  onLogout,
+  isCloudSynced = true,
+  onManualSync,
+  isManualSyncing = false,
+  logos
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -51,9 +61,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems = [
     { id: 'self-attendance', label: 'Absensi Mandiri', icon: CalendarCheck, badge: 'Utama' },
     { id: 'today-stats', label: 'Statistik Harian', icon: BarChart3 },
-    { id: 'piket-panel', label: 'Guru Piket', icon: ClipboardList },
-    { id: 'reports', label: 'Laporan & PDF', icon: FileSpreadsheet },
-    { id: 'admin', label: 'Pengaturan Admin', icon: Settings, restricted: true }
+    ...(session.role === 'ADMIN'
+      ? [
+          { id: 'admin', label: 'Menu Admin', icon: Settings },
+          { id: 'reports', label: 'Laporan & PDF', icon: FileSpreadsheet }
+        ]
+      : [])
   ];
 
   return (
@@ -62,8 +75,28 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white px-4 py-2 text-xs">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 font-medium">
+            <img
+              src={logos?.acehLogo || '/logo-aceh.svg'}
+              alt="Logo Pemerintah Aceh"
+              className="w-4 h-4 object-contain inline-block shrink-0"
+            />
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span>PEMERINTAH ACEH • DINAS PENDIDIKAN • CABDIN ACEH TIMUR</span>
+            <span className="hidden sm:inline-flex items-center gap-1 ml-2 px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-semibold border border-emerald-500/30">
+              <CloudCheck className="w-3 h-3 text-emerald-400" />
+              {isCloudSynced ? 'Cloud Aktif' : 'Menghubungkan...'}
+            </span>
+            {onManualSync && (
+              <button
+                onClick={onManualSync}
+                disabled={isManualSyncing}
+                title="Perbarui & sinkronkan ulang data dari Google Cloud Firestore"
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-95 text-emerald-200 hover:text-white rounded text-[11px] font-medium border border-emerald-500/40 transition-all cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${isManualSyncing ? 'animate-spin text-amber-300' : 'text-emerald-400'}`} />
+                <span>{isManualSyncing ? 'Menyinkronkan...' : 'Sinkron Cloud'}</span>
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-4 text-blue-200 font-mono text-[11px]">
             <span className="hidden sm:inline">{formattedDate}</span>
@@ -81,14 +114,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Logo & School Name */}
           <div 
             onClick={() => setActiveTab('self-attendance')}
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
           >
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-              <GraduationCap className="w-6 h-6" />
+            {/* Logo Resmi (Pemerintah Aceh) */}
+            <div
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-white p-1 border border-slate-200/90 shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform"
+              title="Logo Pemerintah Aceh (Pancacita)"
+            >
+              <img
+                src={logos?.acehLogo || '/logo-aceh.svg'}
+                alt="Logo Pemerintah Aceh"
+                className="w-full h-full object-contain"
+              />
             </div>
+
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black tracking-tight text-slate-900">
+                <h1 className="text-base sm:text-lg font-black tracking-tight text-slate-900 group-hover:text-blue-700 transition-colors">
                   SMA NEGERI 1 JULOK
                 </h1>
                 <span className="hidden md:inline-block px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-full">
@@ -105,17 +147,42 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-3">
             {session.role === 'ADMIN' ? (
               <div className="flex items-center gap-2">
-                <div className="hidden sm:flex flex-col text-right">
-                  <span className="text-xs font-bold text-blue-900 flex items-center gap-1 justify-end">
-                    <Shield className="w-3.5 h-3.5 text-blue-600" />
-                    Admin (Google)
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                  <button
+                    onClick={() => setActiveTab('admin')}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      activeTab === 'admin'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-700 hover:bg-slate-200/80'
+                    }`}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>Admin</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('reports')}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      activeTab === 'reports'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-700 hover:bg-slate-200/80'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Laporan</span>
+                  </button>
+                </div>
+
+                <div className="hidden lg:flex flex-col text-right">
+                  <span className="text-[11px] font-bold text-blue-900 flex items-center gap-1 justify-end">
+                    <Shield className="w-3 h-3 text-blue-600" />
+                    Admin
                   </span>
-                  <span className="text-[11px] font-mono text-slate-500">{session.email}</span>
+                  <span className="text-[10px] font-mono text-slate-500 max-w-[120px] truncate">{session.email}</span>
                 </div>
                 <button
                   onClick={onLogout}
                   title="Keluar dari mode admin"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors border border-rose-200"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors border border-rose-200"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Keluar</span>
@@ -123,6 +190,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             ) : session.role === 'PIKET' ? (
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setActiveTab('piket-panel')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    activeTab === 'piket-panel'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <ClipboardList className="w-3.5 h-3.5" />
+                  <span>Panel Piket</span>
+                </button>
                 <div className="hidden sm:flex flex-col text-right">
                   <span className="text-xs font-bold text-amber-900 flex items-center gap-1 justify-end">
                     <ClipboardList className="w-3.5 h-3.5 text-amber-600" />
@@ -153,24 +231,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs - Menu Utama hanya Absensi Mandiri & Statistik Harian */}
         <nav className="flex space-x-1 sm:space-x-2 border-t border-slate-100 py-1.5 overflow-x-auto scrollbar-none">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            const isLocked = item.restricted && session.role !== 'ADMIN';
 
             return (
               <button
                 key={item.id}
-                onClick={() => {
-                  if (isLocked) {
-                    onOpenAuth();
-                  } else {
-                    setActiveTab(item.id);
-                  }
-                }}
-                className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg whitespace-nowrap transition-all ${
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg whitespace-nowrap transition-all ${
                   isActive
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
@@ -183,11 +254,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     isActive ? 'bg-blue-500 text-white' : 'bg-emerald-100 text-emerald-800'
                   }`}>
                     {item.badge}
-                  </span>
-                )}
-                {isLocked && (
-                  <span className="text-[10px] px-1.5 py-0.2 bg-slate-200 text-slate-600 rounded">
-                    Admin
                   </span>
                 )}
               </button>

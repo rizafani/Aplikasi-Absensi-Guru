@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Teacher, AttendanceRecord } from '../types';
+import { Teacher, AttendanceRecord, SchoolLogos } from '../types';
 import { generateAttendancePDF, ReportFilterOptions } from '../utils/pdfExport';
 import {
   FileText,
@@ -19,11 +19,13 @@ import {
 interface ReportsPageProps {
   teachers: Teacher[];
   attendanceRecords: AttendanceRecord[];
+  logos?: SchoolLogos;
 }
 
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   teachers,
-  attendanceRecords
+  attendanceRecords,
+  logos
 }) => {
   const [reportType, setReportType] = useState<'month' | 'teacher' | 'range' | 'all'>('month');
 
@@ -99,15 +101,20 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       statusFilter
     };
 
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
-        generateAttendancePDF(filteredRecords, filterOptions, {
-          name: 'SMA NEGERI 1 JULOK',
-          address: 'Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur',
-          headmasterName: 'Riza Fani, S.Pd., M.Pd.',
-          headmasterNip: '19750812 200212 1 002',
-          piketOfficer: 'Cut Mutia, S.Pd.'
-        });
+        await generateAttendancePDF(
+          filteredRecords,
+          filterOptions,
+          {
+            name: 'SMA NEGERI 1 JULOK',
+            address: 'Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur',
+            headmasterName: 'Riza Fani, S.Pd., M.Pd.',
+            headmasterNip: '19750812 200212 1 002',
+            piketOfficer: 'Cut Mutia, S.Pd.'
+          },
+          logos
+        );
       } catch (err) {
         console.error('PDF export error:', err);
         alert('Gagal membuat PDF. Coba kurangi filter atau cetak melalui peramban.');
@@ -120,6 +127,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const handlePrint = () => {
     window.print();
   };
+
+  const acehLogoUrl = logos?.acehLogo || '/logo-aceh.svg';
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
@@ -325,22 +334,40 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
       {/* Official Document Preview Frame */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-md p-6 sm:p-8 space-y-6">
-        {/* Kop Surat Sekolah SMA Negeri 1 Julok */}
-        <div className="text-center border-b-2 border-slate-900 pb-4 relative">
-          <h4 className="text-xs sm:text-sm font-bold tracking-wider text-slate-800 uppercase">
-            PEMERINTAH ACEH • DINAS PENDIDIKAN
-          </h4>
-          <h5 className="text-xs font-semibold text-slate-700 uppercase">
-            CABANG DINAS PENDIDIKAN WILAYAH KABUPATEN ACEH TIMUR
-          </h5>
-          <h3 className="text-lg sm:text-xl font-black text-blue-950 mt-0.5 tracking-tight">
-            SMA NEGERI 1 JULOK
-          </h3>
-          <p className="text-[11px] text-slate-500 mt-1">
-            Alamat: Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur, Kode Pos 24458
-          </p>
-          <div className="h-0.5 bg-slate-900 mt-3"></div>
-          <div className="h-px bg-slate-500 mt-0.5"></div>
+        {/* Kop Surat Sekolah SMA Negeri 1 Julok dengan Logo Pemerintah Aceh & Logo Sekolah */}
+        <div className="border-b-2 border-slate-900 pb-4 relative">
+          <div className="flex items-center justify-between gap-4">
+            {/* Logo Resmi Pemerintah Aceh (Kiri) */}
+            <div className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 flex items-center justify-center p-1 bg-white rounded-lg">
+              <img
+                src={acehLogoUrl}
+                alt="Logo Pemerintah Aceh"
+                className="w-full h-full object-contain max-h-20"
+              />
+            </div>
+
+            {/* Teks Kop Surat Dinas & Sekolah (Tengah) */}
+            <div className="flex-1 text-center px-2">
+              <h4 className="text-xs sm:text-sm font-bold tracking-wider text-slate-800 uppercase font-serif">
+                PEMERINTAH ACEH • DINAS PENDIDIKAN
+              </h4>
+              <h5 className="text-[11px] sm:text-xs font-semibold text-slate-700 uppercase font-serif">
+                CABANG DINAS PENDIDIKAN WILAYAH KABUPATEN ACEH TIMUR
+              </h5>
+              <h3 className="text-base sm:text-xl font-black text-blue-950 mt-0.5 tracking-tight font-serif">
+                SMA NEGERI 1 JULOK
+              </h3>
+              <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
+                Alamat: Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur, Kode Pos 24458
+              </p>
+            </div>
+
+            {/* Spacer penyeimbang tengah agar teks kop tetap simetris */}
+            <div className="w-16 sm:w-20 shrink-0 hidden sm:block pointer-events-none" aria-hidden="true" />
+          </div>
+
+          <div className="h-0.8 bg-slate-900 mt-3"></div>
+          <div className="h-0.3 bg-slate-600 mt-0.5"></div>
         </div>
 
         {/* Subtitle */}

@@ -28,10 +28,10 @@ export interface Subject {
 
 export interface TimeSlot {
   id: string;
-  label: string; // e.g. "Jam 1 - 2"
-  period: string; // "07:30 - 08:50"
+  label: string; // e.g. "Jam 1", "Jam 2" (bukan berpasang)
+  period: string; // "07:30 - 08:15"
   startTime: string; // "07:30"
-  endTime: string; // "08:50"
+  endTime: string; // "08:15"
 }
 
 export interface ScheduleItem {
@@ -40,7 +40,8 @@ export interface ScheduleItem {
   day: DayOfWeek;
   classRoomId: string;
   subjectId: string;
-  timeSlotId: string;
+  timeSlotId: string; // primary or first time slot
+  timeSlotIds?: string[]; // multiple selected individual time slots, kept as one schedule
   room?: string;
   notes?: string;
 }
@@ -74,4 +75,24 @@ export interface UserSession {
   name?: string;
   avatar?: string;
   piketName?: string;
+  teacherId?: string;
+  username?: string;
+}
+
+export interface PiketAccount {
+  id: string; // e.g. "piket-<teacherId>"
+  teacherId: string;
+  teacherName: string;
+  nip: string;
+  username: string; // auto-generated from teacher name (lowercase, no titles)
+  password: string; // auto-generated default password or customized
+  assignedDays?: DayOfWeek[]; // days assigned for piket duty e.g. ['Senin']
+  isActive: boolean;
+  notes?: string;
+  updatedAt?: string;
+}
+
+export interface SchoolLogos {
+  acehLogo: string;
+  schoolLogo?: string;
 }

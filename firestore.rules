@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'rizafani@gmail.com';
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Teachers master collection
+    match /teachers/{teacherId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Classes collection
+    match /classes/{classId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Subjects collection
+    match /subjects/{subjectId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Time slots collection
+    match /timeSlots/{timeSlotId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Schedules collection
+    match /schedules/{scheduleId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Piket accounts collection (username & password generated for teachers)
+    match /piketAccounts/{accountId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Attendance records collection (self-attendance without login, piket, admin)
+    match /attendance/{attendanceId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // Test connection doc
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, DayOfWeek } from '../types';
-import { INDONESIAN_DAYS, getTodayDayName, getTodayDateString } from '../data/initialData';
+import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, DayOfWeek, SchoolLogos } from '../types';
+import { INDONESIAN_DAYS, getTodayDayName, getTodayDateString, formatScheduleTimeSlots } from '../data/initialData';
 import confetti from 'canvas-confetti';
 import {
   Camera,
@@ -10,13 +10,18 @@ import {
   BookOpen,
   School,
   Sparkles,
-  Upload,
   RefreshCw,
   AlertCircle,
   FileText,
   User,
-  Check
+  Check,
+  QrCode,
+  ScanLine,
+  Printer,
+  X
 } from 'lucide-react';
+import { ClassQRCodeModal } from './ClassQRCodeModal';
+import { QRScannerModal } from './QRScannerModal';
 
 interface SelfAttendanceProps {
   teachers: Teacher[];
@@ -24,8 +29,9 @@ interface SelfAttendanceProps {
   subjects: Subject[];
   timeSlots: TimeSlot[];
   schedules: ScheduleItem[];
-  onRecordAttendance: (record: AttendanceRecord) => void;
+  onRecordAttendance: (record: AttendanceRecord) => Promise<void> | void;
   onGoToStats: () => void;
+  logos?: SchoolLogos;
 }
 
 export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
@@ -35,7 +41,8 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
   timeSlots,
   schedules,
   onRecordAttendance,
-  onGoToStats
+  onGoToStats,
+  logos
 }) => {
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
@@ -61,6 +68,12 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submittedRecord, setSubmittedRecord] = useState<AttendanceRecord | null>(null);
 
+  // QR Code Modals & Scanned State
+  const [isQRModalOpen, setIsQRModalOpen] = useState<boolean>(false);
+  const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
+  const [qrModalInitialClassId, setQrModalInitialClassId] = useState<string>('');
+  const [scannedClassNotice, setScannedClassNotice] = useState<{ classId: string; className: string } | null>(null);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -83,13 +96,56 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
     }
   };
 
-  // Find schedules for this teacher on this day
-  const teacherSchedules = schedules.filter(
-    (s) => s.teacherId === selectedTeacherId && s.day === selectedDay
-  );
+  // Find schedules for this teacher on this day (sorted chronologically per jam)
+  const teacherSchedules = schedules
+    .filter((s) => s.teacherId === selectedTeacherId && s.day === selectedDay)
+    .sort((a, b) => {
+      const slotAIdx = timeSlots.findIndex((t) => t.id === a.timeSlotId);
+      const slotBIdx = timeSlots.findIndex((t) => t.id === b.timeSlotId);
+      return (slotAIdx >= 0 ? slotAIdx : 999) - (slotBIdx >= 0 ? slotBIdx : 999);
+    });
 
-  // Auto-select first schedule if available and not yet set
+  // Handle class scanned from QR Code
+  const handleClassScanned = (classRoom: ClassRoom) => {
+    setScannedClassNotice({ classId: classRoom.id, className: classRoom.name });
+    
+    // Check if current selected teacher has a schedule in this class today
+    if (selectedTeacherId) {
+      const matchingSched = schedules.find(
+        (s) =>
+          s.teacherId === selectedTeacherId &&
+          s.day === selectedDay &&
+          s.classRoomId === classRoom.id
+      );
+      if (matchingSched) {
+        setSelectedScheduleId(matchingSched.id);
+      } else {
+        setSelectedScheduleId('');
+        setCustomClassId(classRoom.id);
+        if (subjects.length > 0 && !customSubjectId) setCustomSubjectId(subjects[0].id);
+        if (timeSlots.length > 0 && !customTimeSlotId) setCustomTimeSlotId(timeSlots[0].id);
+      }
+    } else {
+      setCustomClassId(classRoom.id);
+    }
+  };
+
+  // Auto-select schedule matching scanned class or first available schedule
   useEffect(() => {
+    if (scannedClassNotice) {
+      const match = teacherSchedules.find((s) => s.classRoomId === scannedClassNotice.classId);
+      if (match) {
+        setSelectedScheduleId(match.id);
+        return;
+      } else {
+        setSelectedScheduleId('');
+        setCustomClassId(scannedClassNotice.classId);
+        if (subjects.length > 0 && !customSubjectId) setCustomSubjectId(subjects[0].id);
+        if (timeSlots.length > 0 && !customTimeSlotId) setCustomTimeSlotId(timeSlots[0].id);
+        return;
+      }
+    }
+
     if (teacherSchedules.length > 0) {
       setSelectedScheduleId(teacherSchedules[0].id);
     } else {
@@ -98,7 +154,7 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       if (subjects.length > 0 && !customSubjectId) setCustomSubjectId(subjects[0].id);
       if (timeSlots.length > 0 && !customTimeSlotId) setCustomTimeSlotId(timeSlots[0].id);
     }
-  }, [selectedTeacherId, selectedDay]);
+  }, [selectedTeacherId, selectedDay, scannedClassNotice]);
 
   // Clean camera stream on unmount
   useEffect(() => {
@@ -107,28 +163,56 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
     };
   }, []);
 
-  const startCamera = async () => {
+  // Camera handler with automatic fallback & instant video element stream attachment
+  const startCamera = async (targetFacing?: 'user' | 'environment') => {
+    const facingMode = targetFacing || cameraFacing;
     stopCamera();
     setCameraError(null);
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError('Browser ini tidak mendukung akses kamera langsung. Pastikan Anda membuka melalui browser modern (Chrome, Safari, Firefox, Edge) dengan koneksi HTTPS.');
+      return;
+    }
+
     try {
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: cameraFacing,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream;
+      try {
+        const constraints: MediaStreamConstraints = {
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (primaryErr) {
+        console.warn('Initial camera constraints failed, attempting basic constraint fallback:', primaryErr);
+        // Fallback for browsers/webcams that fail on width/height or exact facingMode
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
+
       streamRef.current = stream;
+      setIsCameraActive(true);
+
+      // Attach stream immediately to video if mounted
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        videoRef.current.play().catch((err) => console.warn('Video play error in startCamera:', err));
       }
-      setIsCameraActive(true);
     } catch (err: unknown) {
-      console.warn('Camera error:', err);
-      setCameraError('Kamera tidak dapat diakses langsung. Anda dapat menggunakan tombol "Upload Foto dari Perangkat" di bawah.');
+      console.error('Camera access error:', err);
+      const errStr = String(err);
+      if (errStr.includes('NotAllowedError') || errStr.includes('Permission')) {
+        setCameraError('Izin akses kamera diblokir atau belum diberikan. Silakan izinkan akses kamera di pengaturan browser/perangkat Anda.');
+      } else if (errStr.includes('NotFoundError') || errStr.includes('DevicesNotFoundError')) {
+        setCameraError('Tidak ditemukan perangkat kamera yang terhubung pada HP/Laptop ini.');
+      } else {
+        setCameraError('Gagal membuka kamera: ' + (err instanceof Error ? err.message : 'Pastikan kamera tidak dipakai aplikasi lain.'));
+      }
       setIsCameraActive(false);
     }
   };
@@ -138,20 +222,72 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsCameraActive(false);
+  };
+
+  // Ref callback ensures srcObject is assigned the exact moment the <video> element mounts to the DOM
+  const setVideoRef = (el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el && streamRef.current) {
+      if (el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+      }
+      el.play().catch((err) => console.warn('Ref callback video play error:', err));
+    }
+  };
+
+  // Watch for stream and video mount
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.play().catch((err) => console.warn('useEffect video play error:', err));
+    }
+  }, [isCameraActive, cameraFacing]);
+
+  const handleToggleCameraFacing = () => {
+    const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
+    setCameraFacing(nextFacing);
+    startCamera(nextFacing);
   };
 
   const capturePhoto = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
+    
+    // Scale down to max 480px to guarantee fast cloud sync and comply with Firestore limits
+    const maxDim = 480;
+    let w = video.videoWidth || 640;
+    let h = video.videoHeight || 480;
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
+      } else {
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
+      }
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Draw video frame
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // If using user/front camera, flip horizontally so selfie looks like a mirror
+    if (cameraFacing === 'user') {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // reset transform for watermark text
+    } else {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
 
     // Add smart watermark overlay
     const now = new Date();
@@ -160,77 +296,23 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
     const teacher = teachers.find(t => t.id === selectedTeacherId);
 
     // Semi-transparent bottom banner
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-    ctx.fillRect(0, canvas.height - 70, canvas.width, 70);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(0, canvas.height - 52, canvas.width, 52);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(`SMA NEGERI 1 JULOK • ${dateStr} ${timeStr} WIB`, 16, canvas.height - 42);
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(`SMA NEGERI 1 JULOK • ${dateStr} ${timeStr} WIB`, 12, canvas.height - 30);
 
-    ctx.font = '13px sans-serif';
+    ctx.font = '11px sans-serif';
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(`Guru: ${teacher?.name || 'Guru'} | Presensi Mandiri di Kelas`, 16, canvas.height - 20);
+    ctx.fillText(`Guru: ${teacher?.name || 'Guru'} | Presensi Mandiri di Kelas`, 12, canvas.height - 12);
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
     setPhotoDataUrl(dataUrl);
     stopCamera();
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        // resize if too big
-        const maxDim = 1200;
-        let w = img.width;
-        let h = img.height;
-        if (w > maxDim || h > maxDim) {
-          if (w > h) {
-            h = Math.round((h * maxDim) / w);
-            w = maxDim;
-          } else {
-            w = Math.round((w * maxDim) / h);
-            h = maxDim;
-          }
-        }
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        ctx.drawImage(img, 0, 0, w, h);
-
-        // Watermark
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-        const dateStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-        const teacher = teachers.find(t => t.id === selectedTeacherId);
-
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-        ctx.fillRect(0, h - 60, w, 60);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 15px sans-serif';
-        ctx.fillText(`SMA NEGERI 1 JULOK • ${dateStr} ${timeStr} WIB`, 14, h - 35);
-
-        ctx.font = '12px sans-serif';
-        ctx.fillStyle = '#cbd5e1';
-        ctx.fillText(`Guru: ${teacher?.name || 'Guru'} | Bukti Hadir Kelas`, 14, h - 16);
-
-        setPhotoDataUrl(canvas.toDataURL('image/jpeg', 0.85));
-      };
-      if (typeof event.target?.result === 'string') {
-        img.src = event.target.result;
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedTeacherId) {
@@ -254,11 +336,11 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       const sched = schedules.find(s => s.id === selectedScheduleId);
       const c = classes.find(cl => cl.id === sched?.classRoomId);
       const sub = subjects.find(sb => sb.id === sched?.subjectId);
-      const ts = timeSlots.find(slot => slot.id === sched?.timeSlotId);
+      const slotInfo = sched ? formatScheduleTimeSlots(sched, timeSlots) : null;
 
       className = c?.name || 'Kelas Terjadwal';
       subjectName = sub?.name || 'Mata Pelajaran';
-      timeSlotName = ts ? `${ts.label} (${ts.period})` : 'Jam Pelajaran Terjadwal';
+      timeSlotName = slotInfo ? slotInfo.fullText : 'Jam Pelajaran Terjadwal';
     } else {
       const c = classes.find(cl => cl.id === customClassId);
       const sub = subjects.find(sb => sb.id === customSubjectId);
@@ -288,10 +370,10 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       recordedBy: 'MANDIRI'
     };
 
-    setTimeout(() => {
-      onRecordAttendance(newRecord);
-      setIsSubmitting(false);
+    try {
+      await onRecordAttendance(newRecord);
       setSubmittedRecord(newRecord);
+      setIsSubmitting(false);
 
       // Trigger Confetti!
       try {
@@ -303,7 +385,11 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       } catch {
         // ignore
       }
-    }, 400);
+    } catch (err) {
+      console.error('Submission error:', err);
+      setIsSubmitting(false);
+      alert('Gagal menyinkronkan presensi ke Cloud Firestore. Silakan periksa jaringan dan coba lagi.');
+    }
   };
 
   const handleResetForm = () => {
@@ -311,6 +397,7 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
     setPhotoDataUrl('');
     setTopic('');
     setNotes('');
+    setScannedClassNotice(null);
   };
 
   const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
@@ -320,26 +407,155 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       {/* Hero Welcome Card */}
       <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white rounded-2xl p-6 sm:p-8 shadow-xl shadow-blue-900/10 mb-8 relative overflow-hidden">
         <div className="absolute top-0 right-0 -mt-6 -mr-6 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-semibold text-blue-100">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              Presensi Mandiri Guru Tanpa Login
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-start sm:items-center gap-4 sm:gap-5">
+            {/* Logo Resmi Pemerintah Aceh */}
+            <div className="shrink-0">
+              <div
+                className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white p-1.5 shadow-lg shadow-black/10 flex items-center justify-center border border-white/50 hover:scale-105 transition-transform"
+                title="Logo Pemerintah Aceh (Pancacita)"
+              >
+                <img
+                  src={logos?.acehLogo || '/logo-aceh.svg'}
+                  alt="Logo Pemerintah Aceh"
+                  className="w-full h-full object-contain"
+                />
+              </div>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Absensi Guru SMA NEGERI 1 JULOK
-            </h2>
-            <p className="text-blue-100 text-sm max-w-xl leading-relaxed">
-              Bapak/Ibu Guru silakan pilih nama, verifikasi jadwal mengajar otomatis, dan ambil foto selfie di kelas sebagai bukti kehadiran mengajar hari ini.
-            </p>
+
+            <div className="space-y-1.5">
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-semibold text-blue-100">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Presensi Mandiri Guru Tanpa Login</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight">
+                Absensi Guru SMA NEGERI 1 JULOK
+              </h2>
+              <p className="text-blue-100 text-xs sm:text-sm max-w-xl leading-relaxed">
+                Pemerintah Aceh • Cabang Dinas Pendidikan Kab. Aceh Timur. Silakan pilih nama guru, verifikasi jadwal mengajar otomatis, dan ambil foto selfie kelas.
+              </p>
+            </div>
           </div>
-          <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 sm:border-l border-white/20 pt-4 sm:pt-0 sm:pl-6 text-right">
+
+          <div className="flex sm:flex-col items-center sm:items-end justify-between border-t md:border-t-0 md:border-l border-white/20 pt-4 md:pt-0 md:pl-6 text-right shrink-0">
             <span className="text-xs text-blue-200">Hari ini:</span>
             <span className="text-base sm:text-lg font-bold text-white font-mono">{selectedDay}</span>
             <span className="text-xs text-blue-200">{selectedDate}</span>
           </div>
         </div>
       </div>
+
+      {/* Quick QR Attendance Action Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        {/* Button Scan QR */}
+        <div
+          onClick={() => setIsScannerOpen(true)}
+          className="group relative bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-5 border border-blue-500/30 shadow-lg shadow-blue-950/20 cursor-pointer hover:border-blue-400 hover:shadow-blue-500/10 transition-all flex items-center justify-between overflow-hidden active:scale-[0.99]"
+        >
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-28 h-28 bg-blue-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-blue-500/20 transition-all"></div>
+          <div className="flex items-center gap-4 relative z-10">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-blue-500/30 group-hover:scale-105 transition-transform">
+              <ScanLine className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm text-white">Scan QR Code Kelas</span>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Cepat
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Pindai QR unik di dinding ruang kelas untuk absensi instan
+              </p>
+            </div>
+          </div>
+          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/80 group-hover:bg-blue-500 group-hover:text-white transition-all shrink-0">
+            <QrCode className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Button Display / Generate Class QR Code */}
+        <div
+          onClick={() => {
+            setQrModalInitialClassId(customClassId || (classes[0]?.id ?? ''));
+            setIsQRModalOpen(true);
+          }}
+          className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all flex items-center justify-between active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shadow-xs group-hover:bg-blue-600 group-hover:text-white transition-colors">
+              <QrCode className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm text-slate-900">Tampilkan / Cetak QR Kelas</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                  Semua Kelas
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Generate QR unik per kelas untuk proyektor atau dicetak
+              </p>
+            </div>
+          </div>
+          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors shrink-0">
+            <Printer className="w-4 h-4" />
+          </div>
+        </div>
+      </div>
+
+      {/* Scanned QR Class Active Badge */}
+      {scannedClassNotice && (
+        <div className="mb-6 p-4 bg-emerald-50 border-2 border-emerald-500/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md shadow-emerald-500/5 animate-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-emerald-900 uppercase tracking-wide">
+                  QR Code Ruang Kelas Terverifikasi
+                </span>
+                <span className="text-[10px] bg-emerald-200/80 text-emerald-950 font-extrabold px-2 py-0.5 rounded-full">
+                  Scan Sukses
+                </span>
+              </div>
+              <p className="text-sm font-extrabold text-slate-900">
+                Ruang Kelas: <span className="text-emerald-700">{scannedClassNotice.className}</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <button
+              type="button"
+              onClick={() => {
+                setQrModalInitialClassId(scannedClassNotice.classId);
+                setIsQRModalOpen(true);
+              }}
+              className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 text-xs font-semibold rounded-lg hover:bg-emerald-100 transition-colors flex items-center gap-1.5"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              Lihat QR
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <ScanLine className="w-3.5 h-3.5" />
+              Scan Ulang
+            </button>
+            <button
+              type="button"
+              onClick={() => setScannedClassNotice(null)}
+              className="px-2 py-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg text-xs"
+              title="Hapus filter QR"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* If Attendance is successfully submitted, show celebration summary card */}
       {submittedRecord ? (
@@ -414,6 +630,18 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
               </h3>
               <span className="text-xs text-rose-500 font-semibold">*wajib</span>
             </div>
+
+            {teachers.length === 0 && (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Database Master Guru Masih Kosong</p>
+                  <p className="mt-0.5 text-amber-700 leading-relaxed">
+                    Belum ada data guru yang diimpor ke database. Administrator (<strong>rizafani@gmail.com</strong>) dapat masuk ke menu <strong>Pengaturan Admin</strong> untuk mengimpor atau menambahkan data guru, kelas, mata pelajaran, dan jadwal mengajar.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -508,9 +736,19 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                   Jadwal Mengajar Otomatis ({selectedDay})
                 </h3>
               </div>
-              <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium">
-                Auto-sync Jadwal
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsScannerOpen(true)}
+                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs rounded-lg border border-blue-200 transition-colors flex items-center gap-1.5"
+                >
+                  <ScanLine className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Scan QR Kelas</span>
+                </button>
+                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-medium hidden sm:inline-block">
+                  Auto-sync Jadwal
+                </span>
+              </div>
             </div>
 
             {!selectedTeacherId ? (
@@ -527,7 +765,7 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                   {teacherSchedules.map((sch) => {
                     const c = classes.find(cl => cl.id === sch.classRoomId);
                     const sub = subjects.find(sb => sb.id === sch.subjectId);
-                    const ts = timeSlots.find(slot => slot.id === sch.timeSlotId);
+                    const slotInfo = formatScheduleTimeSlots(sch, timeSlots);
                     const isSelected = selectedScheduleId === sch.id;
 
                     return (
@@ -551,9 +789,10 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                           </div>
                           {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
                         </div>
-                        <div className="mt-2 text-[11px] text-slate-500 flex items-center gap-2">
+                        <div className="mt-2 text-[11px] text-slate-600 flex items-center gap-2">
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{ts?.label} ({ts?.period})</span>
+                          <span className="font-bold text-blue-700">{slotInfo.label}</span>
+                          <span className="text-slate-500">({slotInfo.period} WIB)</span>
                         </div>
                         {sch.notes && (
                           <div className="mt-1 text-[11px] text-slate-500 italic">
@@ -673,17 +912,21 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                 </div>
               ) : isCameraActive ? (
                 <div className="space-y-3">
-                  <div className="relative max-w-md mx-auto aspect-4/3 rounded-xl overflow-hidden bg-black shadow-inner">
+                  <div className="relative max-w-md mx-auto aspect-4/3 rounded-xl overflow-hidden bg-black shadow-inner border border-slate-700">
                     <video
-                      ref={videoRef}
+                      ref={setVideoRef}
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-full object-cover scale-x-[-1]"
+                      className={`w-full h-full object-cover ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
                     />
-                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-                      <span className="text-[11px] text-white/90 bg-black/50 px-2 py-1 rounded backdrop-blur-xs">
-                        Kamera Aktif
+                    <div className="absolute top-3 left-3 bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                      <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+                      <span>Kamera Aktif</span>
+                    </div>
+                    <div className="absolute bottom-3 left-3 right-3 text-center pointer-events-none">
+                      <span className="text-[11px] text-white/90 bg-black/60 px-3 py-1 rounded-full backdrop-blur-xs">
+                        Arahkan wajah & ruang kelas ke dalam layar
                       </span>
                     </div>
                   </div>
@@ -692,64 +935,67 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                     <button
                       type="button"
                       onClick={capturePhoto}
-                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2"
+                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 active:scale-95 transition-all"
                     >
                       <Camera className="w-4 h-4" />
-                      Bidikan Foto Selfie
+                      Ambil Foto Selfie
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setCameraFacing((prev) => (prev === 'user' ? 'environment' : 'user'));
-                        setTimeout(startCamera, 100);
-                      }}
-                      className="px-3.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-medium rounded-xl flex items-center gap-1.5"
+                      onClick={handleToggleCameraFacing}
+                      className="px-3.5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-medium rounded-xl flex items-center gap-1.5 transition-colors"
+                      title="Ganti ke kamera depan / belakang"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Putar Kamera
+                      Putar Kamera ({cameraFacing === 'user' ? 'Depan' : 'Belakang'})
                     </button>
                     <button
                       type="button"
                       onClick={stopCamera}
-                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium rounded-xl"
+                      className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium rounded-xl transition-colors"
                     >
-                      Batal
+                      Tutup Kamera
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4 text-center py-4">
+                <div className="space-y-4 text-center py-6 px-4">
                   {cameraError && (
-                    <div className="p-3 bg-amber-50 text-amber-800 text-xs rounded-lg max-w-md mx-auto text-left flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <span>{cameraError}</span>
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl max-w-md mx-auto text-left flex items-start gap-2.5 mb-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <span className="font-semibold block mb-0.5">Kendala Akses Kamera:</span>
+                        <span>{cameraError}</span>
+                      </div>
                     </div>
                   )}
 
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <div className="w-16 h-16 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center mx-auto shadow-inner">
+                    <Camera className="w-8 h-8" />
+                  </div>
+
+                  <div className="max-w-md mx-auto">
+                    <h4 className="text-sm font-bold text-slate-800">
+                      Ambil Foto Selfie Langsung di Kelas
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Wajib mengambil foto selfie fisik langsung di kelas saat jam pelajaran. Opsi upload dari galeri ditiadakan demi menjaga integritas kehadiran.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-center pt-2">
                     <button
                       type="button"
-                      onClick={startCamera}
-                      className="w-full sm:w-auto px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
+                      onClick={() => startCamera()}
+                      className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition-all active:scale-95"
                     >
                       <Camera className="w-4 h-4" />
-                      Buka Kamera Langsung
+                      <span>{cameraError ? 'Coba Buka Kamera Lagi' : 'Buka Kamera Selfie Langsung'}</span>
                     </button>
-
-                    <label className="w-full sm:w-auto px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 shadow-2xs cursor-pointer flex items-center justify-center gap-2">
-                      <Upload className="w-4 h-4 text-slate-500" />
-                      <span>Upload Foto dari HP / Laptop</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="user"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
                   </div>
+
                   <p className="text-[11px] text-slate-400">
-                    Sistem otomatis menyematkan tanggal, waktu WIB, dan identitas SMA NEGERI 1 JULOK pada foto.
+                    Sistem otomatis menyematkan tanggal, jam WIB, dan watermark SMA NEGERI 1 JULOK pada foto.
                   </p>
                 </div>
               )}
@@ -822,6 +1068,27 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
           </div>
         </form>
       )}
+
+      {/* QR Code Generator & Viewer Modal */}
+      <ClassQRCodeModal
+        isOpen={isQRModalOpen}
+        onClose={() => setIsQRModalOpen(false)}
+        classes={classes}
+        initialClassId={qrModalInitialClassId}
+        onSelectClassForAttendance={(cls) => {
+          handleClassScanned(cls);
+        }}
+      />
+
+      {/* QR Code Camera Scanner Modal */}
+      <QRScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        classes={classes}
+        onClassScanned={(cls) => {
+          handleClassScanned(cls);
+        }}
+      />
     </div>
   );
 };

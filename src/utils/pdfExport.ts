@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { AttendanceRecord } from '../types';
+import { AttendanceRecord, SchoolLogos } from '../types';
+import { loadImageAsDataUrl } from './imageUtils';
 
 export interface ReportFilterOptions {
   type: 'month' | 'teacher' | 'range' | 'all';
@@ -12,7 +13,7 @@ export interface ReportFilterOptions {
   statusFilter?: string;
 }
 
-export function generateAttendancePDF(
+export async function generateAttendancePDF(
   records: AttendanceRecord[],
   filter: ReportFilterOptions,
   schoolInfo = {
@@ -21,7 +22,8 @@ export function generateAttendancePDF(
     headmasterName: 'Riza Fani, S.Pd., M.Pd.',
     headmasterNip: '19750812 200212 1 002',
     piketOfficer: 'Cut Mutia, S.Pd.'
-  }
+  },
+  logos?: SchoolLogos
 ) {
   // Orientation: Landscape for rich tabular attendance report
   const doc = new jsPDF({
@@ -32,6 +34,18 @@ export function generateAttendancePDF(
 
   const pageWidth = doc.internal.pageSize.getWidth();
   
+  // Render Official Logo in Kop Surat (Single Logo: Pemerintah Aceh)
+  if (logos?.acehLogo) {
+    try {
+      const acehDataUrl = await loadImageAsDataUrl(logos.acehLogo, 160, 180);
+      if (acehDataUrl && acehDataUrl.startsWith('data:image')) {
+        doc.addImage(acehDataUrl, 'PNG', 16, 9, 21, 25);
+      }
+    } catch (e) {
+      console.warn('Could not add Aceh logo to PDF Kop Surat:', e);
+    }
+  }
+
   // Header / Kop Surat Resmi Pemerintah Aceh
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);

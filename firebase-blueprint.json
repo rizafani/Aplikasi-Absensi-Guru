@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Data tenaga pendidik / guru SMA NEGERI 1 JULOK",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nip": { "type": "string" },
+        "name": { "type": "string" },
+        "gender": { "type": "string", "enum": ["L", "P"] },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string", "enum": ["Aktif", "Nonaktif"] }
+      },
+      "required": ["id", "nip", "name", "gender", "status"]
+    },
+    "ClassRoom": {
+      "title": "ClassRoom",
+      "description": "Data ruang kelas SMA NEGERI 1 JULOK",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "grade": { "type": "string", "enum": ["X", "XI", "XII"] },
+        "major": { "type": "string" }
+      },
+      "required": ["id", "name", "grade"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Data mata pelajaran SMA NEGERI 1 JULOK",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "TimeSlot": {
+      "title": "TimeSlot",
+      "description": "Data jam pelajaran sekolah",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "period": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" }
+      },
+      "required": ["id", "label", "period", "startTime", "endTime"]
+    },
+    "ScheduleItem": {
+      "title": "ScheduleItem",
+      "description": "Jadwal mengajar guru per hari, kelas, mapel, dan jam pelajaran",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "day": { "type": "string", "enum": ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"] },
+        "classRoomId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "timeSlotId": { "type": "string" },
+        "room": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "teacherId", "day", "classRoomId", "subjectId", "timeSlotId"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Catatan presensi harian guru dan jurnal mengajar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "nip": { "type": "string" },
+        "date": { "type": "string" },
+        "dayName": { "type": "string" },
+        "classRoomName": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "timeSlotName": { "type": "string" },
+        "status": { "type": "string", "enum": ["HADIR", "SAKIT", "IZIN", "DINAS_LUAR", "ALPA"] },
+        "photoUrl": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "notes": { "type": "string" },
+        "topic": { "type": "string" },
+        "recordedBy": { "type": "string", "enum": ["MANDIRI", "GURU_PIKET", "ADMIN"] },
+        "piketOfficerName": { "type": "string" },
+        "piketNotes": { "type": "string" },
+        "substituteTeacherName": { "type": "string" }
+      },
+      "required": ["id", "teacherId", "teacherName", "date", "status", "recordedBy"]
+    }
+  },
+  "firestore": {
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Koleksi data master guru"
+    },
+    "/classes/{classId}": {
+      "schema": "ClassRoom",
+      "description": "Koleksi data ruang kelas"
+    },
+    "/subjects/{subjectId}": {
+      "schema": "Subject",
+      "description": "Koleksi mata pelajaran"
+    },
+    "/timeSlots/{timeSlotId}": {
+      "schema": "TimeSlot",
+      "description": "Koleksi jam pelajaran"
+    },
+    "/schedules/{scheduleId}": {
+      "schema": "ScheduleItem",
+      "description": "Koleksi jadwal mengajar mingguan"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "AttendanceRecord",
+      "description": "Koleksi catatan absensi mandiri dan piket"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, DayOfWeek } from '../types';
-import { getTodayDayName, getTodayDateString, INDONESIAN_DAYS } from '../data/initialData';
+import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, DayOfWeek, SchoolLogos } from '../types';
+import { getTodayDayName, getTodayDateString, INDONESIAN_DAYS, formatScheduleTimeSlots } from '../data/initialData';
 import {
   Users,
   CheckCircle2,
@@ -24,6 +24,7 @@ interface TodayStatsProps {
   schedules: ScheduleItem[];
   attendanceRecords: AttendanceRecord[];
   onOpenPiket: () => void;
+  logos?: SchoolLogos;
 }
 
 export const TodayStats: React.FC<TodayStatsProps> = ({
@@ -33,7 +34,8 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
   timeSlots,
   schedules,
   attendanceRecords,
-  onOpenPiket
+  onOpenPiket,
+  logos
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(getTodayDayName());
@@ -121,18 +123,29 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
       {/* Top Header & Date Filter */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Statistik Kehadiran Guru
-            </h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-              Live Monitoring
-            </span>
+        <div className="flex items-center gap-3.5">
+          <div className="shrink-0">
+            <div className="w-11 h-11 rounded-xl bg-slate-50 p-1 border border-slate-200 flex items-center justify-center shadow-xs">
+              <img
+                src={logos?.acehLogo || '/logo-aceh.svg'}
+                alt="Logo Pemerintah Aceh"
+                className="w-full h-full object-contain"
+              />
+            </div>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Data pemantauan presensi dan jurnal mengajar guru SMA NEGERI 1 JULOK secara real-time.
-          </p>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                Statistik Kehadiran Guru
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+                Live Monitoring
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Data pemantauan presensi dan jurnal mengajar guru SMA NEGERI 1 JULOK secara real-time.
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -339,11 +352,11 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
               const scheduleDetails = teacherScheds.map((sch) => {
                 const c = classes.find((cl) => cl.id === sch.classRoomId);
                 const sub = subjects.find((sb) => sb.id === sch.subjectId);
-                const ts = timeSlots.find((slot) => slot.id === sch.timeSlotId);
+                const slotInfo = formatScheduleTimeSlots(sch, timeSlots);
                 return {
                   cls: c?.name || '-',
                   subj: sub?.name || '-',
-                  slot: ts ? `${ts.label} (${ts.period})` : '-'
+                  slot: slotInfo.fullText
                 };
               });
 

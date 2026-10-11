@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, UserSession, AttendanceStatus, DayOfWeek } from '../types';
-import { getTodayDayName, getTodayDateString, INDONESIAN_DAYS } from '../data/initialData';
+import { getTodayDayName, getTodayDateString, INDONESIAN_DAYS, formatScheduleTimeSlots } from '../data/initialData';
 import {
   ClipboardList,
   AlertTriangle,
@@ -22,8 +22,8 @@ interface PiketPanelProps {
   timeSlots: TimeSlot[];
   schedules: ScheduleItem[];
   attendanceRecords: AttendanceRecord[];
-  onRecordAttendance: (record: AttendanceRecord) => void;
-  onDeleteRecord: (id: string) => void;
+  onRecordAttendance: (record: AttendanceRecord) => Promise<void> | void;
+  onDeleteRecord: (id: string) => Promise<void> | void;
   onOpenAuth: () => void;
 }
 
@@ -67,7 +67,7 @@ export const PiketPanel: React.FC<PiketPanelProps> = ({
   // Piket notes recorded for this date
   const piketRecords = dateAttendance.filter((r) => r.status !== 'HADIR');
 
-  const handleSubmitPiket = (e: React.FormEvent) => {
+  const handleSubmitPiket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetTeacherId) {
       alert('Silakan pilih guru yang berhalangan hadir.');
@@ -81,7 +81,7 @@ export const PiketPanel: React.FC<PiketPanelProps> = ({
     const teacherSched = daySchedules.find((s) => s.teacherId === targetTeacherId);
     const c = classes.find((cl) => cl.id === teacherSched?.classRoomId);
     const sub = subjects.find((sb) => sb.id === teacherSched?.subjectId);
-    const ts = timeSlots.find((slot) => slot.id === teacherSched?.timeSlotId);
+    const slotInfo = teacherSched ? formatScheduleTimeSlots(teacherSched, timeSlots) : null;
 
     const substituteTeacher = teachers.find((t) => t.id === substituteTeacherId);
 
@@ -95,7 +95,7 @@ export const PiketPanel: React.FC<PiketPanelProps> = ({
       dayName: selectedDay,
       classRoomName: c?.name || 'Seluruh Kelas Hari Ini',
       subjectName: sub?.name || 'Mata Pelajaran Terjadwal',
-      timeSlotName: ts ? `${ts.label} (${ts.period})` : 'Jadwal Hari Ini',
+      timeSlotName: slotInfo ? slotInfo.fullText : 'Jadwal Hari Ini',
       status: status,
       photoUrl: '',
       timestamp: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
@@ -103,18 +103,23 @@ export const PiketPanel: React.FC<PiketPanelProps> = ({
       recordedBy: 'GURU_PIKET',
       piketOfficerName: officerNameInput.trim() || session.piketName || 'Petugas Piket',
       piketNotes: reason.trim() || `Keterangan tercatat: ${status}`,
-      substituteTeacherName: substituteTeacher ? substituteTeacher.name : undefined
+      substituteTeacherName: substituteTeacher ? substituteTeacher.name : ''
     };
 
-    onRecordAttendance(newPiketRecord);
-    setIsSuccessMsg(`Keterangan ketidakhadiran untuk ${teacher.name} berhasil disimpan.`);
-    setReason('');
-    setTargetTeacherId('');
-    setSubstituteTeacherId('');
+    try {
+      await onRecordAttendance(newPiketRecord);
+      setIsSuccessMsg(`Keterangan ketidakhadiran untuk ${teacher.name} berhasil disimpan ke Cloud Database.`);
+      setReason('');
+      setTargetTeacherId('');
+      setSubstituteTeacherId('');
 
-    setTimeout(() => {
-      setIsSuccessMsg(null);
-    }, 4000);
+      setTimeout(() => {
+        setIsSuccessMsg(null);
+      }, 4000);
+    } catch (err) {
+      console.error('Failed to save piket record:', err);
+      alert('Gagal menyimpan keterangan ke Cloud Firestore. Silakan coba lagi.');
+    }
   };
 
   return (
