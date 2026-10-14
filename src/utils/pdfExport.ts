@@ -13,15 +13,26 @@ export interface ReportFilterOptions {
   statusFilter?: string;
 }
 
+export interface SchoolReportInfo {
+  name?: string;
+  address?: string;
+  headmasterName?: string;
+  headmasterNip?: string;
+  curriculumViceName?: string;
+  curriculumViceNip?: string;
+  piketOfficer?: string;
+}
+
 export async function generateAttendancePDF(
   records: AttendanceRecord[],
   filter: ReportFilterOptions,
-  schoolInfo = {
+  schoolInfo: SchoolReportInfo = {
     name: 'SMA NEGERI 1 JULOK',
-    address: 'Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur',
-    headmasterName: 'Riza Fani, S.Pd., M.Pd.',
-    headmasterNip: '19750812 200212 1 002',
-    piketOfficer: 'Cut Mutia, S.Pd.'
+    address: 'Jln Alue Ie Mirah Desa Buket Seuraja Kecamatan Julok Kabupaten Aceh Timur - Kode Pos 24457',
+    headmasterName: 'Irmi, S.Pd, M.Pd',
+    headmasterNip: '19800102 200504 2 001',
+    curriculumViceName: 'Desi Muliana, S.Pd',
+    curriculumViceNip: '19862025212030'
   },
   logos?: SchoolLogos
 ) {
@@ -54,11 +65,11 @@ export async function generateAttendancePDF(
   doc.setFontSize(13);
   doc.text('CABANG DINAS PENDIDIKAN WILAYAH KABUPATEN ACEH TIMUR', pageWidth / 2, 24, { align: 'center' });
   doc.setFontSize(15);
-  doc.text(schoolInfo.name, pageWidth / 2, 30, { align: 'center' });
+  doc.text(schoolInfo.name || 'SMA NEGERI 1 JULOK', pageWidth / 2, 30, { align: 'center' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(schoolInfo.address, pageWidth / 2, 35, { align: 'center' });
+  doc.text(schoolInfo.address || 'Jln Alue Ie Mirah Desa Buket Seuraja Kecamatan Julok Kabupaten Aceh Timur - Kode Pos 24457', pageWidth / 2, 35, { align: 'center' });
 
   // Kop Double Horizontal Lines
   doc.setLineWidth(0.8);
@@ -193,27 +204,31 @@ export async function generateAttendancePDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
 
-  // Left Sign: Koordinator Guru Piket
-  doc.text('Mengetahui / Memeriksa,', leftX, signY, { align: 'center' });
-  doc.text('Petugas Guru Piket Harian', leftX, signY + 5, { align: 'center' });
+  // Left Sign: Wakil Kepala Kurikulum
+  doc.text('Mengetahui,', leftX, signY, { align: 'center' });
+  doc.text('Wakil Kepala Kurikulum', leftX, signY + 5, { align: 'center' });
 
   doc.setFont('helvetica', 'bold');
-  doc.text(schoolInfo.piketOfficer, leftX, signY + 28, { align: 'center' });
+  const leftOfficerName = schoolInfo.curriculumViceName || 'Desi Muliana, S.Pd';
+  doc.text(leftOfficerName, leftX, signY + 28, { align: 'center' });
   doc.setLineWidth(0.3);
-  doc.line(leftX - 30, signY + 29, leftX + 30, signY + 29);
+  doc.line(leftX - 35, signY + 29, leftX + 35, signY + 29);
   doc.setFont('helvetica', 'normal');
-  doc.text('NIP. 19801104 200801 2 008', leftX, signY + 34, { align: 'center' });
+  const leftOfficerNip = schoolInfo.curriculumViceNip || '19862025212030';
+  doc.text(`NIP. ${leftOfficerNip}`, leftX, signY + 34, { align: 'center' });
 
   // Right Sign: Kepala Sekolah
   doc.text(`Julok, ${todayAceh}`, rightX, signY, { align: 'center' });
   doc.text('Kepala SMA Negeri 1 Julok', rightX, signY + 5, { align: 'center' });
 
   doc.setFont('helvetica', 'bold');
-  doc.text(schoolInfo.headmasterName, rightX, signY + 28, { align: 'center' });
+  const rightOfficerName = schoolInfo.headmasterName || 'Irmi, S.Pd, M.Pd';
+  doc.text(rightOfficerName, rightX, signY + 28, { align: 'center' });
   doc.setLineWidth(0.3);
   doc.line(rightX - 35, signY + 29, rightX + 35, signY + 29);
   doc.setFont('helvetica', 'normal');
-  doc.text(`NIP. ${schoolInfo.headmasterNip}`, rightX, signY + 34, { align: 'center' });
+  const rightOfficerNip = schoolInfo.headmasterNip || '19800102 200504 2 001';
+  doc.text(`NIP. ${rightOfficerNip}`, rightX, signY + 34, { align: 'center' });
 
   // Save the PDF
   const filename = `Laporan_Absensi_SMAN1_Julok_${filter.type}_${Date.now()}.pdf`;

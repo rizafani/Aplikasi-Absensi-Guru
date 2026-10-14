@@ -108,10 +108,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           filterOptions,
           {
             name: 'SMA NEGERI 1 JULOK',
-            address: 'Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur',
-            headmasterName: 'Riza Fani, S.Pd., M.Pd.',
-            headmasterNip: '19750812 200212 1 002',
-            piketOfficer: 'Cut Mutia, S.Pd.'
+            address: 'Jln Alue Ie Mirah Desa Buket Seuraja Kecamatan Julok Kabupaten Aceh Timur - Kode Pos 24457',
+            headmasterName: 'Irmi, S.Pd, M.Pd',
+            headmasterNip: '19800102 200504 2 001',
+            curriculumViceName: 'Desi Muliana, S.Pd',
+            curriculumViceNip: '19862025212030'
           },
           logos
         );
@@ -358,7 +359,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 SMA NEGERI 1 JULOK
               </h3>
               <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
-                Alamat: Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur, Kode Pos 24458
+                Alamat: Jln Alue Ie Mirah Desa Buket Seuraja Kecamatan Julok Kabupaten Aceh Timur - Kode Pos 24457
               </p>
             </div>
 
@@ -452,11 +453,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         {/* Tanda Tangan Resmi Pengesahan */}
         <div className="pt-8 flex flex-col sm:flex-row justify-between gap-8 text-xs text-slate-800">
           <div className="text-center sm:text-left">
-            <p>Mengetahui / Memeriksa,</p>
-            <p className="font-semibold">Petugas Guru Piket Harian</p>
+            <p>Mengetahui,</p>
+            <p className="font-semibold">Wakil Kepala Kurikulum</p>
             <div className="h-16"></div>
-            <p className="font-bold underline">Cut Mutia, S.Pd.</p>
-            <p className="text-[11px] text-slate-500 font-mono">NIP. 19801104 200801 2 008</p>
+            <p className="font-bold underline">Desi Muliana, S.Pd</p>
+            <p className="text-[11px] text-slate-500 font-mono">NIP. 19862025212030</p>
           </div>
 
           <div className="text-center sm:text-right">
@@ -465,8 +466,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             </p>
             <p className="font-semibold">Kepala SMA Negeri 1 Julok</p>
             <div className="h-16"></div>
-            <p className="font-bold underline">Riza Fani, S.Pd., M.Pd.</p>
-            <p className="text-[11px] text-slate-500 font-mono">NIP. 19750812 200212 1 002</p>
+            <p className="font-bold underline">Irmi, S.Pd, M.Pd</p>
+            <p className="text-[11px] text-slate-500 font-mono">NIP : 19800102 200504 2 001</p>
           </div>
         </div>
       </div>

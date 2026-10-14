@@ -50,10 +50,12 @@ import {
   EyeOff,
   Share2,
   Lock,
-  Sparkles
+  Sparkles,
+  Radio
 } from 'lucide-react';
 import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { ReportsPage } from './ReportsPage';
+import { AdminRealtimeDashboard } from './AdminRealtimeDashboard';
 
 interface AdminDashboardProps {
   session: UserSession;
@@ -84,6 +86,8 @@ interface AdminDashboardProps {
   onBulkSaveTimeSlots?: (data: TimeSlot[]) => void;
   logos?: SchoolLogos;
   onSaveLogos?: (logos: SchoolLogos) => void;
+  onRecordAttendance?: (record: AttendanceRecord) => void;
+  onDeleteAttendanceRecord?: (id: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -114,9 +118,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteTimeSlot,
   onBulkSaveTimeSlots,
   logos = DEFAULT_LOGOS,
-  onSaveLogos
+  onSaveLogos,
+  onRecordAttendance,
+  onDeleteAttendanceRecord
 }) => {
-  const [adminTab, setAdminTab] = useState<'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'import' | 'branding' | 'reports'>('schedules');
+  const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'import' | 'branding' | 'reports'>('realtime');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Piket Management State
@@ -752,6 +758,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Tabs */}
       <div className="bg-white p-2 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap gap-1">
         {[
+          { id: 'realtime', label: 'Dashboard Realtime', icon: Radio, count: null, isLive: true },
           { id: 'schedules', label: 'Jadwal Mengajar', icon: Calendar, count: schedules.length },
           { id: 'teachers', label: 'Data Guru', icon: Users, count: teachers.length },
           { id: 'piket', label: 'Kelola Admin Piket', icon: UserCheck, count: piketAccounts.length },
@@ -771,14 +778,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 setAdminTab(tab.id as typeof adminTab);
                 setSearchQuery('');
               }}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Icon className="w-4 h-4" />
+              <Icon className={`w-4 h-4 ${tab.isLive ? (isActive ? 'text-emerald-300 animate-pulse' : 'text-emerald-500 animate-pulse') : ''}`} />
               <span>{tab.label}</span>
+              {tab.isLive && (
+                <span
+                  className={`text-[9px] px-1.5 py-0.2 rounded-full font-extrabold uppercase tracking-wider flex items-center gap-1 ${
+                    isActive ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  Live
+                </span>
+              )}
               {tab.count !== null && (
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
@@ -792,6 +809,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           );
         })}
       </div>
+
+      {/* TAB CONTENT: 0. DASHBOARD REALTIME MONITORING */}
+      {adminTab === 'realtime' && (
+        <AdminRealtimeDashboard
+          teachers={teachers}
+          classes={classes}
+          subjects={subjects}
+          timeSlots={timeSlots}
+          schedules={schedules}
+          attendanceRecords={attendanceRecords}
+          piketAccounts={piketAccounts}
+          logos={logos}
+          onRecordAttendance={onRecordAttendance}
+          onDeleteRecord={onDeleteAttendanceRecord}
+          onSwitchTab={(tabId) => setAdminTab(tabId as typeof adminTab)}
+        />
+      )}
 
       {/* TAB CONTENT: 1. JADWAL MENGAJAR */}
       {adminTab === 'schedules' && (
@@ -1815,7 +1849,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     SMA NEGERI 1 JULOK
                   </div>
                   <div className="text-[9px] sm:text-[10px] text-slate-500">
-                    Jl. Medan - Banda Aceh, Km. 360, Desa Julok Tunong, Kec. Julok, Kab. Aceh Timur
+                    Jln Alue Ie Mirah Desa Buket Seuraja Kecamatan Julok Kabupaten Aceh Timur - Kode Pos 24457
                   </div>
                 </div>
                 <div className="w-14 sm:w-16 shrink-0 hidden sm:block pointer-events-none" aria-hidden="true" />

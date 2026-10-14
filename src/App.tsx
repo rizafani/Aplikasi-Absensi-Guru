@@ -503,6 +503,8 @@ export default function App() {
             onBulkSavePiketAccounts={handleBulkSavePiketAccounts}
             logos={logos}
             onSaveLogos={handleSaveLogos}
+            onRecordAttendance={handleRecordAttendance}
+            onDeleteAttendanceRecord={handleDeleteRecord}
           />
         )}
       </main>
