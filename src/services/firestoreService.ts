@@ -15,7 +15,8 @@ import {
   TimeSlot,
   ScheduleItem,
   AttendanceRecord,
-  PiketAccount
+  PiketAccount,
+  SchoolLocationConfig
 } from '../types';
 
 const COLLECTIONS = {
@@ -26,6 +27,7 @@ const COLLECTIONS = {
   SCHEDULES: 'schedules',
   ATTENDANCE: 'attendance',
   PIKET_ACCOUNTS: 'piketAccounts',
+  SETTINGS: 'settings',
 };
 
 /**
@@ -63,6 +65,7 @@ export const FirestoreService = {
     onSchedules: (data: ScheduleItem[]) => void;
     onAttendance: (data: AttendanceRecord[]) => void;
     onPiketAccounts?: (data: PiketAccount[]) => void;
+    onLocationConfig?: (config: SchoolLocationConfig) => void;
     onSyncStatus?: (synced: boolean, details?: string) => void;
   }) {
     let initialSyncCount = 0;
@@ -185,6 +188,19 @@ export const FirestoreService = {
       }
     );
 
+    // 8. Location Settings
+    const unsubLocationConfig = onSnapshot(
+      doc(db, COLLECTIONS.SETTINGS, 'schoolLocation'),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          callbacks.onLocationConfig?.(snapshot.data() as SchoolLocationConfig);
+        }
+      },
+      (error) => {
+        console.warn('Note: schoolLocation config doc not initialized yet or read error:', error);
+      }
+    );
+
     return () => {
       unsubTeachers();
       unsubClasses();
@@ -193,7 +209,19 @@ export const FirestoreService = {
       unsubSchedules();
       unsubAttendance();
       unsubPiketAccounts();
+      unsubLocationConfig();
     };
+  },
+
+  // Save / Update School Location Geofence Config
+  async saveLocationConfig(config: SchoolLocationConfig): Promise<void> {
+    const docRef = doc(db, COLLECTIONS.SETTINGS, 'schoolLocation');
+    try {
+      await setDoc(docRef, cleanForFirestore(config), { merge: true });
+      console.log('School location config synced to Firestore');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.SETTINGS}/schoolLocation`);
+    }
   },
 
   // Save / Update Attendance Record to Cloud
@@ -337,7 +365,16 @@ export const FirestoreService = {
 
   async bulkSaveTimeSlots(slots: TimeSlot[]): Promise<void> {
     try {
+      const snap = await getDocs(collection(db, COLLECTIONS.TIME_SLOTS));
       const batch = writeBatch(db);
+      const newIds = new Set(slots.map((s) => s.id));
+
+      snap.forEach((d) => {
+        if (!newIds.has(d.id)) {
+          batch.delete(d.ref);
+        }
+      });
+
       slots.forEach((s) => {
         const ref = doc(db, COLLECTIONS.TIME_SLOTS, s.id);
         batch.set(ref, cleanForFirestore(s), { merge: true });

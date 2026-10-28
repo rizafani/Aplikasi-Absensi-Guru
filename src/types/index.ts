@@ -46,6 +46,17 @@ export interface ScheduleItem {
   notes?: string;
 }
 
+export type LocationValidationStatus = 'VALID' | 'OUT_OF_RANGE' | 'GPS_DISABLED' | 'UNVERIFIED';
+
+export interface SchoolLocationConfig {
+  schoolName: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  strictValidation: boolean;
+}
+
 export interface AttendanceRecord {
   id: string;
   teacherId: string;
@@ -65,6 +76,13 @@ export interface AttendanceRecord {
   piketOfficerName?: string;
   piketNotes?: string;
   substituteTeacherName?: string;
+  // GPS Location Verification
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number; // Akurasi GPS dalam meter
+  distanceMeters?: number; // Jarak dari pusat SMAN 1 Julok (meter)
+  locationStatus?: LocationValidationStatus;
+  locationAddress?: string;
 }
 
 export type UserRole = 'GUEST' | 'ADMIN' | 'PIKET';

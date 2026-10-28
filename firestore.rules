@@ -58,6 +58,11 @@ service cloud.firestore {
       allow update, delete: if true;
     }
 
+    // Settings collection (schoolLocation, etc)
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
     // Test connection doc
     match /test/{docId} {
       allow read, write: if true;

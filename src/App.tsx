@@ -8,7 +8,8 @@ import {
   AttendanceRecord,
   UserSession,
   SchoolLogos,
-  PiketAccount
+  PiketAccount,
+  SchoolLocationConfig
 } from './types';
 import { Storage } from './utils/storage';
 import { INITIAL_TIME_SLOTS } from './data/initialData';
@@ -22,6 +23,7 @@ import { PiketPanel } from './components/PiketPanel';
 import { AdminDashboard } from './components/AdminDashboard';
 import { ReportsPage } from './components/ReportsPage';
 import { AuthModal } from './components/AuthModal';
+import { WorkflowModal } from './components/WorkflowModal';
 
 export default function App() {
   const [teachers, setTeachers] = useState<Teacher[]>(() => Storage.getTeachers());
@@ -44,6 +46,9 @@ export default function App() {
     return saved;
   });
   const [logos, setLogos] = useState<SchoolLogos>(() => Storage.getSchoolLogos());
+  const [locationConfig, setLocationConfig] = useState<SchoolLocationConfig>(() =>
+    Storage.getLocationConfig()
+  );
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
   const [isManualSyncing, setIsManualSyncing] = useState<boolean>(false);
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
@@ -51,6 +56,7 @@ export default function App() {
   // Default active tab is 'self-attendance' (Halaman awal guru presensi mandiri tanpa login)
   const [activeTab, setActiveTab] = useState<string>('self-attendance');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState<boolean>(false);
 
   // Keep track of latest teachers for listeners without causing effect re-triggers
   const teachersRef = useRef(teachers);
@@ -106,18 +112,10 @@ export default function App() {
       },
       onTimeSlots: (data) => {
         if (data.length > 0) {
-          const hasPaired = data.some((slot) => /\d+\s*[-–/]\s*\d+/.test(slot.label));
-          const finalSlots = hasPaired ? INITIAL_TIME_SLOTS : data;
           setTimeSlots((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(finalSlots)) return prev;
-            Storage.saveTimeSlots(finalSlots);
-            return finalSlots;
-          });
-        } else {
-          setTimeSlots((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(INITIAL_TIME_SLOTS)) return prev;
-            Storage.saveTimeSlots(INITIAL_TIME_SLOTS);
-            return INITIAL_TIME_SLOTS;
+            if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
+            Storage.saveTimeSlots(data);
+            return data;
           });
         }
       },
@@ -157,6 +155,12 @@ export default function App() {
           });
         }
       },
+      onLocationConfig: (config) => {
+        if (config) {
+          setLocationConfig(config);
+          Storage.saveLocationConfig(config);
+        }
+      },
       onSyncStatus: (status) => {
         setIsCloudSynced(status);
       }
@@ -185,13 +189,8 @@ export default function App() {
         Storage.saveSubjects(data.subjects);
       }
       if (data.timeSlots.length > 0) {
-        const hasPaired = data.timeSlots.some((slot) => /\d+\s*[-–/]\s*\d+/.test(slot.label));
-        const finalSlots = hasPaired ? INITIAL_TIME_SLOTS : data.timeSlots;
-        setTimeSlots(finalSlots);
-        Storage.saveTimeSlots(finalSlots);
-      } else {
-        setTimeSlots(INITIAL_TIME_SLOTS);
-        Storage.saveTimeSlots(INITIAL_TIME_SLOTS);
+        setTimeSlots(data.timeSlots);
+        Storage.saveTimeSlots(data.timeSlots);
       }
       if (data.schedules.length > 0) {
         setSchedules(data.schedules);
@@ -399,6 +398,14 @@ export default function App() {
     Storage.saveSchoolLogos(newLogos);
   };
 
+  const handleSaveLocationConfig = async (newConfig: SchoolLocationConfig) => {
+    setLocationConfig(newConfig);
+    Storage.saveLocationConfig(newConfig);
+    await FirestoreService.saveLocationConfig(newConfig);
+    setSyncToastMessage('Pengaturan Lokasi GPS & Geofencing Berhasil Disimpan ke Cloud!');
+    setTimeout(() => setSyncToastMessage(null), 3500);
+  };
+
   return (
     <div className="min-h-screen bg-slate-100/70 flex flex-col selection:bg-blue-600 selection:text-white">
       {/* Top Navigation with Cloud Sync Status & Official Logos */}
@@ -412,6 +419,7 @@ export default function App() {
         onManualSync={handleManualSync}
         isManualSyncing={isManualSyncing}
         logos={logos}
+        onOpenWorkflow={() => setIsWorkflowModalOpen(true)}
       />
 
       {/* Sync Toast Notification */}
@@ -434,6 +442,7 @@ export default function App() {
             onRecordAttendance={handleRecordAttendance}
             onGoToStats={() => setActiveTab('today-stats')}
             logos={logos}
+            locationConfig={locationConfig}
           />
         )}
 
@@ -503,6 +512,8 @@ export default function App() {
             onBulkSavePiketAccounts={handleBulkSavePiketAccounts}
             logos={logos}
             onSaveLogos={handleSaveLogos}
+            locationConfig={locationConfig}
+            onSaveLocationConfig={handleSaveLocationConfig}
             onRecordAttendance={handleRecordAttendance}
             onDeleteAttendanceRecord={handleDeleteRecord}
           />
@@ -533,6 +544,13 @@ export default function App() {
             <span>Admin: rizafani@gmail.com</span>
             <span>•</span>
             <button
+              onClick={() => setIsWorkflowModalOpen(true)}
+              className="text-blue-600 hover:underline font-semibold cursor-pointer"
+            >
+              Diagram Alur Kerja
+            </button>
+            <span>•</span>
+            <button
               onClick={() => setIsAuthModalOpen(true)}
               className="text-blue-600 hover:underline font-medium cursor-pointer"
             >
@@ -550,6 +568,12 @@ export default function App() {
         onLogin={handleLogin}
         teachers={teachers}
         piketAccounts={piketAccounts}
+      />
+
+      {/* Workflow Diagram & SOP Modal */}
+      <WorkflowModal
+        isOpen={isWorkflowModalOpen}
+        onClose={() => setIsWorkflowModalOpen(false)}
       />
     </div>
   );

@@ -1,5 +1,6 @@
-import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, UserSession, SchoolLogos, PiketAccount } from '../types';
+import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, UserSession, SchoolLogos, PiketAccount, SchoolLocationConfig } from '../types';
 import { INITIAL_TIME_SLOTS } from '../data/initialData';
+import { DEFAULT_SCHOOL_LOCATION } from './geo';
 
 export const DEFAULT_LOGOS: SchoolLogos = {
   acehLogo: '/logo-aceh.svg',
@@ -16,7 +17,51 @@ const STORAGE_KEYS = {
   SESSION: 'sman1julok_session_v1',
   LOGOS: 'sman1julok_logos_v2',
   ADMIN_PASSWORD: 'sman1julok_admin_password_v1',
+  LOCATION_CONFIG: 'sman1julok_location_config_v1',
 };
+
+/**
+ * Sanitizes attendance records for localStorage storage.
+ * Strips heavy Base64 photos and retains up to 100 recent entries.
+ * Full photos remain stored securely in Google Cloud Firestore and in React component state.
+ */
+function sanitizeAttendanceForStorage(records: AttendanceRecord[]): AttendanceRecord[] {
+  if (!Array.isArray(records)) return [];
+  return records.slice(0, 100).map((record) => {
+    if (record.photoUrl && (record.photoUrl.startsWith('data:') || record.photoUrl.length > 200)) {
+      return { ...record, photoUrl: '' };
+    }
+    return record;
+  });
+}
+
+/**
+ * Proactively clean up any bloated historical attendance entries in localStorage
+ * that may have exceeded or approached the browser's ~5MB storage quota.
+ */
+function initStorageMaintenance(): void {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
+    if (raw && (raw.length > 150000 || raw.includes('data:image/'))) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const cleaned = sanitizeAttendanceForStorage(parsed);
+          localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(cleaned));
+        } else {
+          localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
+      }
+    }
+  } catch {
+    // Silently ignore if localStorage is unavailable
+  }
+}
+
+// Run maintenance on module evaluation
+initStorageMaintenance();
 
 function safeGet<T>(key: string, fallback: T): T {
   try {
@@ -24,7 +69,7 @@ function safeGet<T>(key: string, fallback: T): T {
     if (!raw) return fallback;
     return JSON.parse(raw);
   } catch (err) {
-    console.error(`Error reading ${key} from localStorage`, err);
+    console.warn(`[Storage] Error reading ${key} from localStorage, using fallback`, err);
     return fallback;
   }
 }
@@ -32,8 +77,36 @@ function safeGet<T>(key: string, fallback: T): T {
 function safeSet<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.error(`Error writing ${key} to localStorage`, err);
+  } catch (err: unknown) {
+    const isQuotaError =
+      (err instanceof DOMException &&
+        (err.name === 'QuotaExceededError' ||
+          err.code === 22 ||
+          err.code === 1014 ||
+          err.name === 'NS_ERROR_DOM_QUOTA_REACHED')) ||
+      (typeof err === 'object' && err !== null && 'name' in err && (err as { name: string }).name === 'QuotaExceededError');
+
+    if (isQuotaError) {
+      console.warn(`[Storage] LocalStorage quota exceeded when writing ${key}. Initiating recovery...`);
+      try {
+        if (key === STORAGE_KEYS.ATTENDANCE && Array.isArray(value)) {
+          const trimmed = (value as AttendanceRecord[]).slice(0, 30).map((item) => ({
+            ...item,
+            photoUrl: '',
+          }));
+          localStorage.setItem(key, JSON.stringify(trimmed));
+          return;
+        }
+
+        // Evict cached attendance to free up quota for other essential configurations
+        localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (recoveryErr) {
+        console.warn(`[Storage] Could not persist ${key} into localStorage after eviction; keeping in-memory.`, recoveryErr);
+      }
+    } else {
+      console.warn(`[Storage] Warning writing ${key} to localStorage:`, err);
+    }
   }
 }
 
@@ -61,9 +134,7 @@ export const Storage = {
 
   getTimeSlots(): TimeSlot[] {
     const list = safeGet<TimeSlot[]>(STORAGE_KEYS.TIME_SLOTS, []);
-    // Ensure time slots are not paired (e.g. no "Jam 1-2" or "1 - 2")
-    const hasPaired = list.some((slot) => /\d+\s*[-–/]\s*\d+/.test(slot.label));
-    if (list.length === 0 || hasPaired) {
+    if (!list || list.length === 0) {
       safeSet(STORAGE_KEYS.TIME_SLOTS, INITIAL_TIME_SLOTS);
       return INITIAL_TIME_SLOTS;
     }
@@ -84,7 +155,8 @@ export const Storage = {
     return safeGet<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
   },
   saveAttendance(data: AttendanceRecord[]): void {
-    safeSet(STORAGE_KEYS.ATTENDANCE, data);
+    const sanitized = sanitizeAttendanceForStorage(data);
+    safeSet(STORAGE_KEYS.ATTENDANCE, sanitized);
   },
 
   getPiketAccounts(): PiketAccount[] {
@@ -121,6 +193,21 @@ export const Storage = {
   },
   saveAdminPassword(password: string): void {
     safeSet(STORAGE_KEYS.ADMIN_PASSWORD, password);
+  },
+
+  getLocationConfig(): SchoolLocationConfig {
+    const saved = safeGet<Partial<SchoolLocationConfig>>(STORAGE_KEYS.LOCATION_CONFIG, {});
+    return {
+      schoolName: saved.schoolName || DEFAULT_SCHOOL_LOCATION.schoolName,
+      address: saved.address || DEFAULT_SCHOOL_LOCATION.address,
+      latitude: typeof saved.latitude === 'number' ? saved.latitude : DEFAULT_SCHOOL_LOCATION.latitude,
+      longitude: typeof saved.longitude === 'number' ? saved.longitude : DEFAULT_SCHOOL_LOCATION.longitude,
+      radiusMeters: typeof saved.radiusMeters === 'number' ? saved.radiusMeters : DEFAULT_SCHOOL_LOCATION.radiusMeters,
+      strictValidation: saved.strictValidation !== undefined ? saved.strictValidation : DEFAULT_SCHOOL_LOCATION.strictValidation,
+    };
+  },
+  saveLocationConfig(config: SchoolLocationConfig): void {
+    safeSet(STORAGE_KEYS.LOCATION_CONFIG, config);
   },
 
   clearAll(): void {

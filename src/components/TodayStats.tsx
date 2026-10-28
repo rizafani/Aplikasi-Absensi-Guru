@@ -13,7 +13,8 @@ import {
   X,
   FileCheck,
   UserX,
-  ArrowRight
+  ArrowRight,
+  MapPin
 } from 'lucide-react';
 
 interface TodayStatsProps {
@@ -418,6 +419,18 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
                         <div className="text-[11px] font-mono text-slate-500 mt-1">
                           Jam {records[0]?.timestamp} WIB
                         </div>
+                        {records[0]?.locationStatus && (
+                          <div className="mt-1 flex justify-end">
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                              records[0].locationStatus === 'VALID'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`} title={`Titik GPS: ~${records[0].distanceMeters ?? 0}m`}>
+                              <MapPin className="w-2.5 h-2.5" />
+                              <span>{records[0].locationStatus === 'VALID' ? `GPS Sah (~${records[0].distanceMeters ?? 0}m)` : `Luar Radius (~${records[0].distanceMeters ?? 0}m)`}</span>
+                            </span>
+                          </div>
+                        )}
                       </div>
                     ) : status === 'BELUM_ABSEN' ? (
                       <div className="text-right">

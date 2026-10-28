@@ -12,7 +12,8 @@ import {
   Shield,
   Clock,
   CloudCheck,
-  RefreshCw
+  RefreshCw,
+  Workflow
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -25,6 +26,7 @@ interface NavbarProps {
   onManualSync?: () => void;
   isManualSyncing?: boolean;
   logos?: SchoolLogos;
+  onOpenWorkflow?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,7 +38,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   isCloudSynced = true,
   onManualSync,
   isManualSyncing = false,
-  logos
+  logos,
+  onOpenWorkflow
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -144,7 +147,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Right Action / Auth Status */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {onOpenWorkflow && (
+              <button
+                onClick={onOpenWorkflow}
+                title="Lihat Gambar & Diagram Alur Kerja Sistem"
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all border border-slate-200 shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+              >
+                <Workflow className="w-4 h-4 text-blue-600" />
+                <span className="hidden sm:inline">Alur Kerja</span>
+              </button>
+            )}
+
             {session.role === 'ADMIN' ? (
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">

@@ -46,9 +46,11 @@ import {
   ExternalLink,
   Award,
   Check,
-  Phone,
-  HelpCircle
+  HelpCircle,
+  Workflow,
+  MapPin
 } from 'lucide-react';
+import { WorkflowModal } from './WorkflowModal';
 
 interface AdminRealtimeDashboardProps {
   teachers: Teacher[];
@@ -96,6 +98,7 @@ export const AdminRealtimeDashboard: React.FC<AdminRealtimeDashboardProps> = ({
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
 
   // Modal states
+  const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState<boolean>(false);
   const [previewPhotoRecord, setPreviewPhotoRecord] = useState<AttendanceRecord | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [modalTargetTeacher, setModalTargetTeacher] = useState<Teacher | null>(null);
@@ -469,6 +472,16 @@ export const AdminRealtimeDashboard: React.FC<AdminRealtimeDashboardProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Workflow Diagram SOP Button */}
+            <button
+              onClick={() => setIsWorkflowModalOpen(true)}
+              className="bg-blue-600/70 hover:bg-blue-600 text-white border border-blue-400/40 px-3.5 py-2.5 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+              title="Lihat Gambar Diagram Alur Kerja & SOP Sistem"
+            >
+              <Workflow className="w-4 h-4 text-amber-300" />
+              <span>Alur Kerja Sistem</span>
+            </button>
           </div>
         </div>
 
@@ -1052,21 +1065,36 @@ export const AdminRealtimeDashboard: React.FC<AdminRealtimeDashboardProps> = ({
                       {/* Recorder / Verification */}
                       <td className="py-3 px-3 text-center">
                         {primaryRecord ? (
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                              primaryRecord.recordedBy === 'MANDIRI'
-                                ? 'bg-blue-100 text-blue-800'
+                          <div className="flex flex-col items-center gap-1">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                primaryRecord.recordedBy === 'MANDIRI'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : primaryRecord.recordedBy === 'GURU_PIKET'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-purple-100 text-purple-800'
+                              }`}
+                            >
+                              {primaryRecord.recordedBy === 'MANDIRI'
+                                ? 'Presensi Mandiri'
                                 : primaryRecord.recordedBy === 'GURU_PIKET'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-purple-100 text-purple-800'
-                            }`}
-                          >
-                            {primaryRecord.recordedBy === 'MANDIRI'
-                              ? 'Presensi QR'
-                              : primaryRecord.recordedBy === 'GURU_PIKET'
-                              ? `Piket: ${primaryRecord.piketOfficerName || 'Piket'}`
-                              : 'Admin'}
-                          </span>
+                                ? `Piket: ${primaryRecord.piketOfficerName || 'Piket'}`
+                                : 'Admin'}
+                            </span>
+                            {primaryRecord.locationStatus && (
+                              <span
+                                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                                  primaryRecord.locationStatus === 'VALID'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}
+                                title={`Jarak GPS: ~${primaryRecord.distanceMeters ?? 0}m`}
+                              >
+                                <MapPin className="w-2.5 h-2.5" />
+                                <span>{primaryRecord.locationStatus === 'VALID' ? `GPS Sah (~${primaryRecord.distanceMeters ?? 0}m)` : `Luar (~${primaryRecord.distanceMeters ?? 0}m)`}</span>
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-slate-400 text-[11px]">-</span>
                         )}
@@ -1242,6 +1270,19 @@ export const AdminRealtimeDashboard: React.FC<AdminRealtimeDashboardProps> = ({
                             {primaryRecord.recordedBy}
                           </span>
                         </div>
+                        {primaryRecord.locationStatus && (
+                          <div className={`flex items-center justify-between px-2 py-1 rounded text-[10px] font-semibold ${
+                            primaryRecord.locationStatus === 'VALID'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border border-rose-200'
+                          }`}>
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              <span>{primaryRecord.locationStatus === 'VALID' ? 'Lokasi Sah di SMAN 1 Julok' : 'Di Luar Radius Sekolah'}</span>
+                            </span>
+                            <span className="font-mono">~{primaryRecord.distanceMeters ?? 0}m</span>
+                          </div>
+                        )}
                         {primaryRecord.topic && (
                           <div className="text-slate-800 font-medium">
                             <span className="text-slate-500">Materi:</span> {primaryRecord.topic}
@@ -1344,6 +1385,45 @@ export const AdminRealtimeDashboard: React.FC<AdminRealtimeDashboardProps> = ({
                   </span>
                 </div>
               </div>
+
+              {/* GPS Location Status Card */}
+              {previewPhotoRecord.locationStatus && (
+                <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
+                  previewPhotoRecord.locationStatus === 'VALID'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-rose-50 border-rose-200 text-rose-900'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                      previewPhotoRecord.locationStatus === 'VALID' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                    }`}>
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="font-bold block text-xs">
+                        {previewPhotoRecord.locationStatus === 'VALID'
+                          ? '✓ Lokasi GPS Terverifikasi di SMAN 1 Julok'
+                          : '⚠️ Lokasi di Luar Radius Sekolah'}
+                      </span>
+                      <span className="text-[11px] opacity-80 block">
+                        Jarak: ~{previewPhotoRecord.distanceMeters ?? 0} meter dari titik sekolah
+                        {previewPhotoRecord.accuracy ? ` (Akurasi: ±${previewPhotoRecord.accuracy}m)` : ''}
+                      </span>
+                    </div>
+                  </div>
+                  {previewPhotoRecord.latitude && previewPhotoRecord.longitude && (
+                    <a
+                      href={`https://www.google.com/maps?q=${previewPhotoRecord.latitude},${previewPhotoRecord.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-[11px] font-bold text-blue-700 hover:bg-blue-50 flex items-center gap-1 shrink-0 shadow-xs"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Maps</span>
+                    </a>
+                  )}
+                </div>
+              )}
 
               {previewPhotoRecord.topic && (
                 <div>
@@ -1562,6 +1642,12 @@ export const AdminRealtimeDashboard: React.FC<AdminRealtimeDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Workflow Diagram & SOP Modal */}
+      <WorkflowModal
+        isOpen={isWorkflowModalOpen}
+        onClose={() => setIsWorkflowModalOpen(false)}
+      />
     </div>
   );
 };

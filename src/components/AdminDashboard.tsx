@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Teacher,
   ClassRoom,
@@ -9,10 +9,12 @@ import {
   DayOfWeek,
   AttendanceRecord,
   SchoolLogos,
-  PiketAccount
+  PiketAccount,
+  SchoolLocationConfig
 } from '../types';
 import { INDONESIAN_DAYS, INITIAL_TIME_SLOTS, formatScheduleTimeSlots, getTodayDayName } from '../data/initialData';
 import { DEFAULT_LOGOS } from '../utils/storage';
+import { DEFAULT_SCHOOL_LOCATION, formatDistanceMeters, getGoogleMapsUrl } from '../utils/geo';
 import {
   cleanTeacherNameForUsername,
   generateDefaultPiketPassword,
@@ -35,6 +37,7 @@ import {
   FileSpreadsheet,
   X,
   ShieldCheck,
+  ShieldAlert,
   LogIn,
   QrCode,
   Check,
@@ -51,7 +54,21 @@ import {
   Share2,
   Lock,
   Sparkles,
-  Radio
+  Radio,
+  ArrowUp,
+  ArrowDown,
+  CopyPlus,
+  SlidersHorizontal,
+  Table as TableIcon,
+  LayoutGrid,
+  Wand2,
+  ListOrdered,
+  MapPin,
+  Navigation,
+  Compass,
+  ExternalLink,
+  Globe,
+  Crosshair
 } from 'lucide-react';
 import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { ReportsPage } from './ReportsPage';
@@ -86,6 +103,8 @@ interface AdminDashboardProps {
   onBulkSaveTimeSlots?: (data: TimeSlot[]) => void;
   logos?: SchoolLogos;
   onSaveLogos?: (logos: SchoolLogos) => void;
+  locationConfig?: SchoolLocationConfig;
+  onSaveLocationConfig?: (config: SchoolLocationConfig) => void;
   onRecordAttendance?: (record: AttendanceRecord) => void;
   onDeleteAttendanceRecord?: (id: string) => void;
 }
@@ -119,11 +138,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBulkSaveTimeSlots,
   logos = DEFAULT_LOGOS,
   onSaveLogos,
+  locationConfig = DEFAULT_SCHOOL_LOCATION,
+  onSaveLocationConfig,
   onRecordAttendance,
   onDeleteAttendanceRecord
 }) => {
-  const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'import' | 'branding' | 'reports'>('realtime');
+  const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'location' | 'import' | 'branding' | 'reports'>('realtime');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // GPS Geofence Location Configuration State
+  const [locationForm, setLocationForm] = useState<SchoolLocationConfig>(locationConfig);
+  const [isDetectingCurrentGps, setIsDetectingCurrentGps] = useState<boolean>(false);
+  const [locationSavedToast, setLocationSavedToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (locationConfig) {
+      setLocationForm(locationConfig);
+    }
+  }, [locationConfig]);
 
   // Piket Management State
   const [piketSearch, setPiketSearch] = useState<string>('');
@@ -197,9 +229,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     notes: ''
   });
 
-  // TimeSlot Modal State
+  // TimeSlot Modal & Management State
   const [isTimeSlotModalOpen, setIsTimeSlotModalOpen] = useState(false);
   const [editingTimeSlot, setEditingTimeSlot] = useState<TimeSlot | null>(null);
+  const [timeSlotViewMode, setTimeSlotViewMode] = useState<'grid' | 'table'>('grid');
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [shiftMinutes, setShiftMinutes] = useState<number>(15);
+  const [shiftDirection, setShiftDirection] = useState<'forward' | 'backward'>('forward');
   const [timeSlotForm, setTimeSlotForm] = useState<Partial<TimeSlot>>({
     label: '',
     startTime: '07:30',
@@ -468,6 +504,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // --- TIME SLOTS UTILITIES & PRESETS ---
+  const timeStrToMinutes = (t?: string): number => {
+    if (!t || !t.includes(':')) return 0;
+    const [h, m] = t.split(':').map((n) => parseInt(n, 10) || 0);
+    return h * 60 + m;
+  };
+
+  const minutesToTimeStr = (totalMinutes: number): string => {
+    const norm = ((totalMinutes % 1440) + 1440) % 1440;
+    const h = Math.floor(norm / 60);
+    const m = norm % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  };
+
+  const addMinutesToTime = (t: string, minutes: number): string => {
+    return minutesToTimeStr(timeStrToMinutes(t) + minutes);
+  };
+
+  const getSlotDuration = (start?: string, end?: string): number => {
+    if (!start || !end) return 0;
+    const diff = timeStrToMinutes(end) - timeStrToMinutes(start);
+    return diff >= 0 ? diff : diff + 1440;
+  };
+
   // --- CRUD: TIME SLOTS (JAM PELAJARAN) ---
   const handleOpenTimeSlotModal = (slot?: TimeSlot) => {
     if (slot) {
@@ -481,36 +541,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
     } else {
       setEditingTimeSlot(null);
+      // Smart default: based on the last slot
+      const lastSlot = timeSlots[timeSlots.length - 1];
       const nextNum = timeSlots.length + 1;
+      let start = '07:30';
+      let end = '08:15';
+      if (lastSlot && lastSlot.endTime) {
+        start = lastSlot.endTime;
+        end = addMinutesToTime(lastSlot.endTime, 45);
+      }
       setTimeSlotForm({
         label: `Jam ${nextNum}`,
-        startTime: '07:30',
-        endTime: '08:15',
-        period: '07:30 - 08:15'
+        startTime: start,
+        endTime: end,
+        period: `${start} - ${end}`
       });
     }
     setIsTimeSlotModalOpen(true);
   };
 
+  const handleSetDurationForForm = (minutes: number) => {
+    const start = timeSlotForm.startTime || '07:30';
+    const newEnd = addMinutesToTime(start, minutes);
+    setTimeSlotForm((prev) => ({
+      ...prev,
+      endTime: newEnd,
+      period: `${start} - ${newEnd}`
+    }));
+  };
+
   const handleSaveTimeSlot = (e: React.FormEvent) => {
     e.preventDefault();
     if (!timeSlotForm.label || !timeSlotForm.startTime || !timeSlotForm.endTime) {
-      alert('Mohon isi label jam, jam mulai, dan jam selesai.');
+      alert('Mohon isi label nama jam, jam mulai, dan jam selesai.');
       return;
     }
 
     const trimmedLabel = timeSlotForm.label.trim();
-    if (/\d+\s*[-–/]\s*\d+/.test(trimmedLabel)) {
-      alert('Format jam pelajaran harus per masing-masing jam (misal: "Jam 1", "Jam 2", dll), bukan berpasangan seperti "Jam 1-2".');
-      return;
-    }
-
     const start = timeSlotForm.startTime.trim();
     const end = timeSlotForm.endTime.trim();
     const periodStr = `${start} - ${end}`;
 
     const slotData: TimeSlot = {
-      id: editingTimeSlot ? editingTimeSlot.id : `ts-${Date.now()}`,
+      id: editingTimeSlot ? editingTimeSlot.id : `ts-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       label: trimmedLabel,
       startTime: start,
       endTime: end,
@@ -524,15 +597,147 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleDeleteTimeSlot = (id: string, label: string) => {
-    if (confirm(`Yakin ingin menghapus ${label}? Jadwal mengajar yang terhubung ke jam ini mungkin perlu disesuaikan.`)) {
+    const connected = schedules.filter((s) => s.timeSlotId === id || s.timeSlotIds?.includes(id)).length;
+    const warning = connected > 0
+      ? `Hapus ${label}? Perhatian: ada ${connected} jadwal mengajar guru yang terhubung ke jam ini.`
+      : `Yakin ingin menghapus ${label}?`;
+
+    if (confirm(warning)) {
       if (onDeleteTimeSlot) {
         onDeleteTimeSlot(id);
       }
     }
   };
 
+  const handleDuplicateTimeSlot = (slot: TimeSlot) => {
+    const duration = getSlotDuration(slot.startTime, slot.endTime) || 45;
+    const newStart = slot.endTime;
+    const newEnd = addMinutesToTime(newStart, duration);
+
+    // Try to increment number from label if present
+    const match = slot.label.match(/\d+/);
+    let newLabel = `${slot.label} (Salinan)`;
+    if (match) {
+      const num = parseInt(match[0], 10) + 1;
+      newLabel = slot.label.replace(/\d+/, num.toString());
+    }
+
+    const newSlot: TimeSlot = {
+      id: `ts-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      label: newLabel,
+      startTime: newStart,
+      endTime: newEnd,
+      period: `${newStart} - ${newEnd}`
+    };
+
+    if (onSaveTimeSlot) {
+      onSaveTimeSlot(newSlot);
+    }
+  };
+
+  const handleMoveTimeSlot = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= timeSlots.length) return;
+
+    const updated = [...timeSlots];
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+
+    if (onBulkSaveTimeSlots) {
+      onBulkSaveTimeSlots(updated);
+    }
+  };
+
+  const handleSortTimeSlots = () => {
+    const sorted = [...timeSlots].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    if (onBulkSaveTimeSlots) {
+      onBulkSaveTimeSlots(sorted);
+    }
+  };
+
+  const handleShiftAllTimeSlots = () => {
+    const delta = shiftDirection === 'forward' ? shiftMinutes : -shiftMinutes;
+    const shifted = timeSlots.map((ts) => {
+      const newStart = addMinutesToTime(ts.startTime, delta);
+      const newEnd = addMinutesToTime(ts.endTime, delta);
+      return {
+        ...ts,
+        startTime: newStart,
+        endTime: newEnd,
+        period: `${newStart} - ${newEnd}`
+      };
+    });
+
+    if (onBulkSaveTimeSlots) {
+      onBulkSaveTimeSlots(shifted);
+    }
+    setIsShiftModalOpen(false);
+  };
+
+  const handleApplyPreset = (preset: 'standar' | 'jumat' | 'ramadhan' | 'jam0') => {
+    if (preset === 'jam0') {
+      const exists = timeSlots.some((ts) => ts.label.toLowerCase().includes('jam 0') || ts.label.toLowerCase().includes('upacara'));
+      if (exists) {
+        alert('Jam 0 atau Upacara/Literasi sudah ada pada daftar jam pelajaran.');
+        return;
+      }
+      const firstSlot = timeSlots[0];
+      const end = firstSlot ? firstSlot.startTime : '07:30';
+      const start = addMinutesToTime(end, -30);
+      const slotZero: TimeSlot = {
+        id: `ts-zero-${Date.now()}`,
+        label: 'Jam 0 (Upacara / Literasi Pagi)',
+        startTime: start,
+        endTime: end,
+        period: `${start} - ${end}`
+      };
+      const updated = [slotZero, ...timeSlots];
+      if (onBulkSaveTimeSlots) {
+        onBulkSaveTimeSlots(updated);
+      }
+      return;
+    }
+
+    let presetSlots: TimeSlot[] = [];
+    let presetTitle = '';
+
+    if (preset === 'standar') {
+      presetTitle = 'Standar SMA SMAN 1 JULOK (10 JP @ 45 Menit)';
+      presetSlots = INITIAL_TIME_SLOTS;
+    } else if (preset === 'jumat') {
+      presetTitle = 'Khusus Hari Jumat (6 JP @ 35-40 Menit, Pulang sebelum Sholat Jumat)';
+      presetSlots = [
+        { id: `ts-j-1-${Date.now()}`, label: 'Jam 1', startTime: '07:30', endTime: '08:10', period: '07:30 - 08:10' },
+        { id: `ts-j-2-${Date.now()}`, label: 'Jam 2', startTime: '08:10', endTime: '08:50', period: '08:10 - 08:50' },
+        { id: `ts-j-3-${Date.now()}`, label: 'Jam 3', startTime: '08:50', endTime: '09:30', period: '08:50 - 09:30' },
+        { id: `ts-j-4-${Date.now()}`, label: 'Jam 4', startTime: '09:45', endTime: '10:20', period: '09:45 - 10:20' },
+        { id: `ts-j-5-${Date.now()}`, label: 'Jam 5', startTime: '10:20', endTime: '10:55', period: '10:20 - 10:55' },
+        { id: `ts-j-6-${Date.now()}`, label: 'Jam 6', startTime: '10:55', endTime: '11:30', period: '10:55 - 11:30' }
+      ];
+    } else if (preset === 'ramadhan') {
+      presetTitle = 'Jadwal Bulan Ramadhan (8 JP @ 35 Menit)';
+      presetSlots = [
+        { id: `ts-r-1-${Date.now()}`, label: 'Jam 1', startTime: '08:00', endTime: '08:35', period: '08:00 - 08:35' },
+        { id: `ts-r-2-${Date.now()}`, label: 'Jam 2', startTime: '08:35', endTime: '09:10', period: '08:35 - 09:10' },
+        { id: `ts-r-3-${Date.now()}`, label: 'Jam 3', startTime: '09:10', endTime: '09:45', period: '09:10 - 09:45' },
+        { id: `ts-r-4-${Date.now()}`, label: 'Jam 4', startTime: '09:55', endTime: '10:30', period: '09:55 - 10:30' },
+        { id: `ts-r-5-${Date.now()}`, label: 'Jam 5', startTime: '10:30', endTime: '11:05', period: '10:30 - 11:05' },
+        { id: `ts-r-6-${Date.now()}`, label: 'Jam 6', startTime: '11:05', endTime: '11:40', period: '11:05 - 11:40' },
+        { id: `ts-r-7-${Date.now()}`, label: 'Jam 7', startTime: '11:40', endTime: '12:15', period: '11:40 - 12:15' },
+        { id: `ts-r-8-${Date.now()}`, label: 'Jam 8', startTime: '12:45', endTime: '13:20', period: '12:45 - 13:20' }
+      ];
+    }
+
+    if (confirm(`Terapkan preset "${presetTitle}"? Seluruh jam pelajaran yang ada saat ini akan diganti dengan susunan preset ini.`)) {
+      if (onBulkSaveTimeSlots) {
+        onBulkSaveTimeSlots(presetSlots);
+      }
+    }
+  };
+
   const handleResetDefaultTimeSlots = () => {
-    if (confirm('Atur ulang seluruh jam pelajaran ke format standar SMAN 1 JULOK (Jam 1 s/d Jam 10)? Jam pelajaran yang ada akan diperbarui.')) {
+    if (confirm('Atur ulang seluruh jam pelajaran ke format standar SMAN 1 JULOK (Jam 1 s/d Jam 10 @ 45 Menit)? Jam pelajaran yang ada akan diperbarui.')) {
       if (onBulkSaveTimeSlots) {
         onBulkSaveTimeSlots(INITIAL_TIME_SLOTS);
       }
@@ -735,6 +940,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsPiketModalOpen(false);
   };
 
+  // --- ACTIONS: PENGATURAN LOKASI GPS & GEOFENCE ---
+  const handleGetCurrentGpsLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Perangkat Anda tidak mendukung fitur geolokasi GPS.');
+      return;
+    }
+    setIsDetectingCurrentGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsDetectingCurrentGps(false);
+        const lat = parseFloat(pos.coords.latitude.toFixed(6));
+        const lng = parseFloat(pos.coords.longitude.toFixed(6));
+        setLocationForm((prev) => ({
+          ...prev,
+          latitude: lat,
+          longitude: lng
+        }));
+        alert(`Koordinat GPS berhasil diambil dari perangkat saat ini:\nLintang: ${lat}\nBujur: ${lng}\nAkurasi: ±${Math.round(pos.coords.accuracy)} meter`);
+      },
+      (err) => {
+        setIsDetectingCurrentGps(false);
+        alert(`Gagal mendeteksi lokasi GPS perangkat: ${err.message}. Pastikan izin lokasi aktif di browser.`);
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
+
+  const handleResetDefaultLocation = () => {
+    if (confirm('Kembalikan titik koordinat dan radius ke koordinat resmi SMA Negeri 1 Julok?')) {
+      setLocationForm(DEFAULT_SCHOOL_LOCATION);
+    }
+  };
+
+  const handleSaveLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onSaveLocationConfig) {
+      await onSaveLocationConfig(locationForm);
+      setLocationSavedToast('Pengaturan Lokasi GPS & Geofence berhasil disimpan ke Cloud Database!');
+      setTimeout(() => setLocationSavedToast(null), 4000);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
       {/* Top Banner */}
@@ -750,7 +997,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             Panel Pengaturan Master SMAN 1 JULOK
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Kelola data guru, kelas, mata pelajaran, dan master jadwal mengajar per hari/jam pelajaran.
+            Kelola data guru, kelas, mata pelajaran, master jadwal, dan geofencing lokasi GPS sekolah.
           </p>
         </div>
       </div>
@@ -765,6 +1012,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'classes', label: 'Data Kelas', icon: School, count: classes.length },
           { id: 'subjects', label: 'Mata Pelajaran', icon: BookOpen, count: subjects.length },
           { id: 'timeslots', label: 'Jam Pelajaran', icon: Clock, count: timeSlots.length },
+          { id: 'location', label: 'Lokasi GPS & Geofence', icon: MapPin, count: null },
           { id: 'branding', label: 'Logo & Identitas', icon: Award, count: null },
           { id: 'import', label: 'Import Guru & Data', icon: Upload, count: null },
           { id: 'reports', label: 'Laporan & Rekap PDF', icon: FileSpreadsheet, count: attendanceRecords.length }
@@ -1535,89 +1783,355 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB CONTENT: 5. JAM PELAJARAN */}
       {adminTab === 'timeslots' && (
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-6">
+          {/* Header & Overview Stats */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-5">
             <div>
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-blue-600" />
-                Pengaturan Jam Pelajaran (Per Masing-Masing Jam)
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Kelola jam pelajaran mandiri per masing-masing jam (Jam 1, Jam 2, Jam 3, dst. - bukan berpasangan). Waktu jam mulai & selesai dapat diedit dengan mudah.
-              </p>
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-blue-50 text-blue-600 rounded-xl border border-blue-100">
+                  <Clock className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Pengaturan &amp; Master Jam Pelajaran
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Sesuaikan nama jam, jam mulai, jam selesai, durasi menit, serta terapkan preset jadwal sekolah (Standar, Jumat, Ramadhan, Apel/Upacara).
+                  </p>
+                </div>
+              </div>
             </div>
+
+            {/* Quick Stats Badges */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Total Jam:</span>
+                <span className="font-bold text-blue-700 font-mono text-sm">{timeSlots.length} JP</span>
+              </div>
+              <div className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Rentang Waktu:</span>
+                <span className="font-bold text-slate-900 font-mono">
+                  {timeSlots[0]?.startTime || '07:30'} - {timeSlots[timeSlots.length - 1]?.endTime || '15:45'} WIB
+                </span>
+              </div>
+              {timeSlots.length > 0 && (
+                <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 flex items-center gap-2">
+                  <span className="text-[11px] text-emerald-600 font-semibold uppercase tracking-wider">Rata-rata:</span>
+                  <span className="font-bold font-mono">
+                    {Math.round(
+                      timeSlots.reduce((acc, ts) => acc + (getSlotDuration(ts.startTime, ts.endTime) || 45), 0) /
+                        timeSlots.length
+                    )}{' '}
+                    Menit/JP
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Action Toolbar & Preset Shortcuts */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={handleResetDefaultTimeSlots}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-colors flex items-center gap-1.5"
-                title="Atur ulang ke format standar Jam 1 s/d Jam 10 SMAN 1 JULOK"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Reset Jam Standar (1-10)</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => handleOpenTimeSlotModal()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 <span>Tambah Jam Pelajaran</span>
               </button>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {timeSlots.map((ts) => {
-              const connectedSchedulesCount = schedules.filter((s) => s.timeSlotId === ts.id).length;
-              return (
-                <div
-                  key={ts.id}
-                  className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-400 hover:shadow-xs transition-all flex flex-col justify-between"
+              <button
+                type="button"
+                onClick={() => setIsShiftModalOpen(true)}
+                className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="Geser jam mulai & selesai seluruh jam pelajaran serentak (misal +15 menit)"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                <span>Geser Waktu (± Menit)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSortTimeSlots}
+                className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="Urutkan jam pelajaran secara kronologis dari pagi hingga sore berdasarkan jam mulai"
+              >
+                <ListOrdered className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Urutkan Jam</span>
+              </button>
+
+              {/* Preset Selector */}
+              <div className="relative inline-block group">
+                <button
+                  type="button"
+                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-blue-700 text-sm px-2.5 py-0.5 bg-blue-50 border border-blue-200 rounded-lg">
-                        {ts.label}
-                      </span>
-                      <span className="text-[11px] text-slate-500 font-mono">
-                        {ts.startTime} - {ts.endTime}
-                      </span>
-                    </div>
-
-                    <div className="mt-3">
-                      <span className="text-slate-900 font-mono text-base font-black block">
-                        {ts.period} <span className="text-xs font-normal text-slate-500">WIB</span>
-                      </span>
-                      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
-                        <Calendar className="w-3 h-3 text-slate-400" />
-                        <span>{connectedSchedulesCount} Jadwal Guru Terhubung</span>
-                      </div>
-                    </div>
+                  <Wand2 className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Preset Jadwal Sekolah ▾</span>
+                </button>
+                <div className="hidden group-hover:block hover:block absolute left-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-2 space-y-1">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
+                    Pilihan Preset Cepat
                   </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('standar')}
+                    className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors flex flex-col"
+                  >
+                    <span>Standar SMAN 1 JULOK (10 JP)</span>
+                    <span className="text-[10px] text-slate-400 font-normal">07:30 - 15:45 WIB @ 45 Menit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('jumat')}
+                    className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-colors flex flex-col"
+                  >
+                    <span>Khusus Hari Jumat (6 JP)</span>
+                    <span className="text-[10px] text-slate-400 font-normal">07:30 - 11:30 WIB (Pulang cepat)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset('ramadhan')}
+                    className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 rounded-lg transition-colors flex flex-col"
+                  >
+                    <span>Jadwal Ramadhan (8 JP)</span>
+                    <span className="text-[10px] text-slate-400 font-normal">08:00 - 13:20 WIB @ 35 Menit</span>
+                  </button>
+                  <div className="border-t border-slate-100 my-1 pt-1">
                     <button
                       type="button"
-                      onClick={() => handleOpenTimeSlotModal(ts)}
-                      className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1"
+                      onClick={() => handleApplyPreset('jam0')}
+                      className="w-full text-left px-2.5 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 rounded-lg transition-colors flex flex-col"
                     >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>Edit Jam</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteTimeSlot(ts.id, ts.label)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                      title="Hapus jam pelajaran ini"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>+ Tambah Jam Ke-0 (07:00 - 07:30)</span>
+                      <span className="text-[10px] text-amber-600/70 font-normal">Upacara Bendera / Literasi Pagi</span>
                     </button>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 self-end md:self-auto">
+              <button
+                type="button"
+                onClick={() => setTimeSlotViewMode('grid')}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  timeSlotViewMode === 'grid'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="Tampilan Kartu Grid"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimeSlotViewMode('table')}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  timeSlotViewMode === 'table'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="Tampilan Tabel Ringkas"
+              >
+                <TableIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
+
+          {/* GRID VIEW */}
+          {timeSlotViewMode === 'grid' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {timeSlots.map((ts, idx) => {
+                const connectedSchedulesCount = schedules.filter(
+                  (s) => s.timeSlotId === ts.id || s.timeSlotIds?.includes(ts.id)
+                ).length;
+                const duration = getSlotDuration(ts.startTime, ts.endTime);
+
+                return (
+                  <div
+                    key={ts.id}
+                    className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-blue-400 hover:shadow-md transition-all flex flex-col justify-between group"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="text-[10px] font-bold text-slate-400 font-mono">#{idx + 1}</span>
+                          <span className="font-bold text-blue-700 text-sm px-2.5 py-0.5 bg-blue-50 border border-blue-200 rounded-lg truncate">
+                            {ts.label}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md whitespace-nowrap">
+                          {duration} Menit
+                        </span>
+                      </div>
+
+                      <div className="mt-3.5 space-y-1.5">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-slate-900 font-mono text-base font-black">
+                            {ts.period} <span className="text-xs font-normal text-slate-500">WIB</span>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{connectedSchedulesCount} Jadwal Guru Terhubung</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-1">
+                      {/* Reorder Buttons */}
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleMoveTimeSlot(idx, 'up')}
+                          disabled={idx === 0}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                          title="Geser Urutan Naik"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveTimeSlot(idx, 'down')}
+                          disabled={idx === timeSlots.length - 1}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                          title="Geser Urutan Turun"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateTimeSlot(ts)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                          title="Duplikasi jam pelajaran ini"
+                        >
+                          <CopyPlus className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenTimeSlotModal(ts)}
+                          className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Edit nama jam & waktu"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTimeSlot(ts.id, ts.label)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="Hapus jam pelajaran ini"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* TABLE VIEW */}
+          {timeSlotViewMode === 'table' && (
+            <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+              <table className="w-full text-left text-xs text-slate-700">
+                <thead className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-3.5 text-center w-12">No</th>
+                    <th className="py-3 px-3.5">Nama Jam Pelajaran</th>
+                    <th className="py-3 px-3.5">Rentang Waktu (WIB)</th>
+                    <th className="py-3 px-3.5">Jam Mulai</th>
+                    <th className="py-3 px-3.5">Jam Selesai</th>
+                    <th className="py-3 px-3.5">Durasi</th>
+                    <th className="py-3 px-3.5">Jadwal Terhubung</th>
+                    <th className="py-3 px-3.5 text-center w-48">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {timeSlots.map((ts, idx) => {
+                    const connected = schedules.filter(
+                      (s) => s.timeSlotId === ts.id || s.timeSlotIds?.includes(ts.id)
+                    ).length;
+                    const duration = getSlotDuration(ts.startTime, ts.endTime);
+
+                    return (
+                      <tr key={ts.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3 px-3.5 text-center font-mono text-slate-400 font-bold">{idx + 1}</td>
+                        <td className="py-3 px-3.5 font-bold text-slate-900">
+                          <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
+                            {ts.label}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3.5 font-mono font-bold text-slate-800">{ts.period}</td>
+                        <td className="py-3 px-3.5 font-mono text-slate-600">{ts.startTime}</td>
+                        <td className="py-3 px-3.5 font-mono text-slate-600">{ts.endTime}</td>
+                        <td className="py-3 px-3.5">
+                          <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            {duration} Menit
+                          </span>
+                        </td>
+                        <td className="py-3 px-3.5 text-slate-600">{connected} Jadwal Guru</td>
+                        <td className="py-3 px-3.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleMoveTimeSlot(idx, 'up')}
+                              disabled={idx === 0}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded transition-colors disabled:opacity-20 cursor-pointer"
+                              title="Geser Naik"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveTimeSlot(idx, 'down')}
+                              disabled={idx === timeSlots.length - 1}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded transition-colors disabled:opacity-20 cursor-pointer"
+                              title="Geser Turun"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateTimeSlot(ts)}
+                              className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors cursor-pointer"
+                              title="Duplikasi Jam"
+                            >
+                              <CopyPlus className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenTimeSlotModal(ts)}
+                              className="px-2 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTimeSlot(ts.id, ts.label)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                              title="Hapus"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -1861,7 +2375,256 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB CONTENT: 7. LAPORAN & REKAP PDF */}
+      {/* TAB CONTENT: PENGATURAN LOKASI GPS & GEOFENCE */}
+      {adminTab === 'location' && (
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
+                <h3 className="text-base font-bold text-slate-900">
+                  Pengaturan Lokasi GPS &amp; Radius Geofence Sekolah
+                </h3>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Tentukan koordinat pusat kampus SMA Negeri 1 Julok dan radius jarak aman kehadiran presensi mandiri guru.
+              </p>
+            </div>
+
+            {locationSavedToast && (
+              <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>{locationSavedToast}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Location Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                <MapPin className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 uppercase block">Titik Koordinat Sekolah</span>
+                <span className="text-xs font-mono font-bold text-slate-900 block mt-0.5">
+                  {locationForm.latitude.toFixed(6)}, {locationForm.longitude.toFixed(6)}
+                </span>
+                <a
+                  href={getGoogleMapsUrl(locationForm.latitude, locationForm.longitude)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-blue-600 hover:underline flex items-center gap-1 mt-1 font-medium"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>Lihat di Google Maps</span>
+                </a>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                <Compass className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 uppercase block">Radius Geofence</span>
+                <span className="text-sm font-black text-indigo-900 block mt-0.5">
+                  {locationForm.radiusMeters} meter
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Menjangkau area seluruh kelas, kantor guru &amp; lapangan
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                locationForm.strictValidation ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+              }`}>
+                {locationForm.strictValidation ? <ShieldCheck className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+              </div>
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 uppercase block">Status Validasi</span>
+                <span className={`text-xs font-bold block mt-0.5 ${
+                  locationForm.strictValidation ? 'text-emerald-700' : 'text-amber-700'
+                }`}>
+                  {locationForm.strictValidation ? 'Wajib di Sekolah (Ketat)' : 'Fleksibel (Catat Saja)'}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {locationForm.strictValidation ? 'Presensi terkunci jika di luar radius' : 'Peringatan saja'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Form Configuration */}
+          <form onSubmit={handleSaveLocation} className="space-y-6 pt-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nama Titik Sekolah
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={locationForm.schoolName}
+                  onChange={(e) => setLocationForm({ ...locationForm, schoolName: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Alamat Lengkap Lingkungan Sekolah
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={locationForm.address}
+                  onChange={(e) => setLocationForm({ ...locationForm, address: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Coordinates and Quick Actions */}
+            <div className="bg-slate-50/70 border border-slate-200 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Navigation className="w-4 h-4 text-blue-600" />
+                  Koordinat Titik Pusat GPS
+                </span>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleGetCurrentGpsLocation}
+                    disabled={isDetectingCurrentGps}
+                    className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  >
+                    <Crosshair className={`w-3.5 h-3.5 ${isDetectingCurrentGps ? 'animate-spin' : ''}`} />
+                    <span>{isDetectingCurrentGps ? 'Mendeteksi...' : 'Ambil Titik dari GPS Saya'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetDefaultLocation}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Koordinat SMAN 1 Julok</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Lintang (Latitude / North) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    required
+                    value={locationForm.latitude}
+                    onChange={(e) => setLocationForm({ ...locationForm, latitude: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl font-mono font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">Default SMAN 1 Julok: 5.0309</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Bujur (Longitude / East) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    required
+                    value={locationForm.longitude}
+                    onChange={(e) => setLocationForm({ ...locationForm, longitude: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl font-mono font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">Default SMAN 1 Julok: 97.6235</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Radius Geofence Selection */}
+            <div className="space-y-3">
+              <label className="block text-xs font-semibold text-slate-700">
+                Batas Radius Toleransi Absensi (Meter)
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                {[50, 100, 150, 200, 300, 500].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setLocationForm({ ...locationForm, radiusMeters: r })}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                      locationForm.radiusMeters === r
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {r} meter {r === 200 ? '(Rekomendasi)' : ''}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <input
+                  type="range"
+                  min="30"
+                  max="1000"
+                  step="10"
+                  value={locationForm.radiusMeters}
+                  onChange={(e) => setLocationForm({ ...locationForm, radiusMeters: parseInt(e.target.value) || 200 })}
+                  className="flex-1 accent-blue-600"
+                />
+                <span className="font-mono text-xs font-black text-slate-800 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+                  {locationForm.radiusMeters} m
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Jarak 200 meter dihitung merata dari titik pusat sekolah sehingga seluruh ruang kelas, lab, perpustakaan, kantor dewan guru, dan lapangan olahraga tercakup secara akurat.
+              </p>
+            </div>
+
+            {/* Strict Validation Toggle */}
+            <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={locationForm.strictValidation}
+                  onChange={(e) => setLocationForm({ ...locationForm, strictValidation: e.target.checked })}
+                  className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <div>
+                  <span className="text-xs font-bold text-slate-900 block">
+                    Wajibkan Validasi Lokasi GPS (Kunci Presensi di Luar Radius)
+                  </span>
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                    Bila opsi ini diaktifkan, guru yang berada di luar radius sekolah (misalnya masih di rumah atau di luar lingkungan SMAN 1 Julok) tidak dapat mengirim absensi mandiri.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Submit Button */}
+            <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100">
+              <button
+                type="submit"
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-2 active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>Simpan Pengaturan Geofence &amp; GPS</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
       {adminTab === 'reports' && (
         <div className="pt-2">
           <ReportsPage
@@ -2424,35 +3187,65 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* MODAL: TIME SLOT (EDIT / TAMBAH JAM PELAJARAN) */}
       {isTimeSlotModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-sm w-full my-auto max-h-[92vh] overflow-y-auto p-6 shadow-2xl space-y-4">
+          <div className="bg-white rounded-2xl max-w-md w-full my-auto max-h-[92vh] overflow-y-auto p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Clock className="w-4 h-4 text-blue-600" />
                 {editingTimeSlot ? 'Edit Jam Pelajaran' : 'Tambah Jam Pelajaran Baru'}
               </h4>
               <button
+                type="button"
                 onClick={() => setIsTimeSlotModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
             <form onSubmit={handleSaveTimeSlot} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nama Jam Pelajaran (Per Jam, bukan pasangan) *
+                  Nama / Label Jam Pelajaran *
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: Jam 1 atau Jam 2 (bukan Jam 1-2)"
+                  placeholder="Contoh: Jam 1, Jam 2, Jam 0 (Upacara), Istirahat..."
                   value={timeSlotForm.label || ''}
                   onChange={(e) => setTimeSlotForm({ ...timeSlotForm, label: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border rounded-lg font-bold"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Harus per masing-masing jam tunggal (misal: <em>Jam 1</em>, <em>Jam 2</em>, <em>Jam 3</em>, dst.). Tidak boleh berpasangan.
-                </p>
+                
+                {/* Quick Label Chips */}
+                <div className="mt-2">
+                  <span className="text-[10px] font-semibold text-slate-400 block mb-1">Pilihan Cepat:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      'Jam 1',
+                      'Jam 2',
+                      'Jam 3',
+                      'Jam 4',
+                      'Jam 5',
+                      'Jam 6',
+                      'Jam 7',
+                      'Jam 8',
+                      'Jam 9',
+                      'Jam 10',
+                      'Jam 0 (Upacara / Literasi)',
+                      'Istirahat Pagi',
+                      'Sholat Dzuhur'
+                    ].map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setTimeSlotForm({ ...timeSlotForm, label: chip })}
+                        className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 border border-slate-200 transition-colors cursor-pointer"
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -2464,8 +3257,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="time"
                     required
                     value={timeSlotForm.startTime || '07:30'}
-                    onChange={(e) => setTimeSlotForm({ ...timeSlotForm, startTime: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border rounded-lg font-mono font-bold"
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      const curDuration = getSlotDuration(timeSlotForm.startTime, timeSlotForm.endTime) || 45;
+                      const newEnd = addMinutesToTime(newStart, curDuration);
+                      setTimeSlotForm({
+                        ...timeSlotForm,
+                        startTime: newStart,
+                        endTime: newEnd,
+                        period: `${newStart} - ${newEnd}`
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl font-mono font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
@@ -2476,40 +3279,213 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="time"
                     required
                     value={timeSlotForm.endTime || '08:15'}
-                    onChange={(e) => setTimeSlotForm({ ...timeSlotForm, endTime: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border rounded-lg font-mono font-bold"
+                    onChange={(e) => {
+                      const newEnd = e.target.value;
+                      setTimeSlotForm({
+                        ...timeSlotForm,
+                        endTime: newEnd,
+                        period: `${timeSlotForm.startTime || '07:30'} - ${newEnd}`
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl font-mono font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-xs space-y-1">
-                <div className="font-semibold text-blue-900 flex items-center justify-between">
-                  <span>Pratinjau Rentang Jam:</span>
-                  <span className="font-mono bg-blue-600 text-white px-2 py-0.5 rounded text-[11px]">
-                    {timeSlotForm.startTime || '00:00'} - {timeSlotForm.endTime || '00:00'} WIB
-                  </span>
+              {/* Quick Duration Buttons */}
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
+                  Set Durasi Otomatis dari Jam Mulai:
+                </span>
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                  {[30, 35, 40, 45, 50, 60].map((mins) => (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => handleSetDurationForForm(mins)}
+                      className="px-2 py-1.5 text-[11px] font-bold rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-colors cursor-pointer text-center"
+                    >
+                      +{mins} mnt
+                    </button>
+                  ))}
                 </div>
-                <p className="text-[11px] text-blue-700">
-                  Label "{timeSlotForm.label || 'Jam'}" akan muncul pada jadwal mengajar dan bukti absensi guru.
-                </p>
               </div>
+
+              {/* Preview & Duration Indicator */}
+              {(() => {
+                const duration = getSlotDuration(timeSlotForm.startTime, timeSlotForm.endTime);
+                const isInvalid = duration <= 0 || duration > 360;
+
+                return (
+                  <div className={`p-3.5 rounded-xl border text-xs space-y-1.5 ${
+                    isInvalid
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                      : 'bg-blue-50/80 border-blue-200 text-blue-900'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">Pratinjau Jam Pelajaran:</span>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
+                        isInvalid
+                          ? 'bg-rose-600 text-white'
+                          : 'bg-emerald-600 text-white'
+                      }`}>
+                        {isInvalid ? 'Periksa Jam' : `${duration} Menit`}
+                      </span>
+                    </div>
+                    <div className="text-slate-800 font-bold font-mono text-sm">
+                      {timeSlotForm.label || 'Jam'}: {timeSlotForm.startTime || '00:00'} - {timeSlotForm.endTime || '00:00'} WIB
+                    </div>
+                    {isInvalid ? (
+                      <p className="text-[11px] text-rose-600 font-medium">
+                        Jam Selesai harus lebih lambat dari Jam Mulai.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-blue-700">
+                        Format ini akan tampil otomatis pada pilihan jadwal mengajar guru dan laporan absensi.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsTimeSlotModalOpen(false)}
-                  className="px-4 py-2 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer"
                 >
                   Simpan Jam Pelajaran
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: GESER WAKTU SELURUH JAM PELAJARAN (BULK TIME SHIFT) */}
+      {isShiftModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full my-auto p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-blue-600" />
+                Geser Waktu Seluruh Jam
+              </h4>
+              <button
+                type="button"
+                onClick={() => setIsShiftModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <p className="text-slate-600 leading-relaxed">
+                Fitur ini akan menggeser <strong>jam mulai &amp; jam selesai seluruh {timeSlots.length} jam pelajaran</strong> secara serentak tanpa mengubah durasi per jam.
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Arah Pergeseran Waktu
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShiftDirection('forward')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      shiftDirection === 'forward'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    + Mundurkan (+ Waktu)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShiftDirection('backward')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      shiftDirection === 'backward'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    - Awalkan (- Waktu)
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Jumlah Menit Pergeseran
+                </label>
+                <div className="grid grid-cols-4 gap-1.5 mb-2">
+                  {[5, 10, 15, 30].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setShiftMinutes(m)}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                        shiftMinutes === m
+                          ? 'bg-blue-100 text-blue-800 border-blue-400'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {m} Menit
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="180"
+                  value={shiftMinutes}
+                  onChange={(e) => setShiftMinutes(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl font-bold font-mono"
+                  placeholder="Ketik jumlah menit bebas"
+                />
+              </div>
+
+              {/* Preview */}
+              {timeSlots.length > 0 && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-[11px]">
+                  <span className="font-bold text-slate-700 block">Contoh Hasil Pergeseran:</span>
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>{timeSlots[0].label}:</span>
+                    <span className="font-mono">
+                      <span className="line-through text-slate-400">{timeSlots[0].period}</span>
+                      {' → '}
+                      <strong className="text-blue-700">
+                        {addMinutesToTime(timeSlots[0].startTime, shiftDirection === 'forward' ? shiftMinutes : -shiftMinutes)} - {addMinutesToTime(timeSlots[0].endTime, shiftDirection === 'forward' ? shiftMinutes : -shiftMinutes)}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsShiftModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShiftAllTimeSlots}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Terapkan Pergeseran
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

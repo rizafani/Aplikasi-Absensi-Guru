@@ -439,6 +439,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       >
                         {r.status}
                       </span>
+                      {r.locationStatus && (
+                        <span className={`block text-[9px] font-medium mt-0.5 ${
+                          r.locationStatus === 'VALID' ? 'text-emerald-700' : 'text-rose-700'
+                        }`}>
+                          {r.locationStatus === 'VALID' ? `GPS Sah (~${r.distanceMeters ?? 0}m)` : `Luar (~${r.distanceMeters ?? 0}m)`}
+                        </span>
+                      )}
                     </td>
                     <td className="p-2.5 text-slate-600 max-w-xs truncate">
                       {r.topic || r.piketNotes || r.notes || (r.recordedBy === 'MANDIRI' ? 'Selfie Hadir' : '-')}

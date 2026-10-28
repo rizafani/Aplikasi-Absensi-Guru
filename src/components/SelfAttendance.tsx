@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, DayOfWeek, SchoolLogos } from '../types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, DayOfWeek, SchoolLogos, SchoolLocationConfig } from '../types';
 import { INDONESIAN_DAYS, getTodayDayName, getTodayDateString, formatScheduleTimeSlots } from '../data/initialData';
+import { DEFAULT_SCHOOL_LOCATION, formatDistanceMeters, getGoogleMapsUrl, validateUserLocation } from '../utils/geo';
 import confetti from 'canvas-confetti';
 import {
   Camera,
@@ -18,7 +19,14 @@ import {
   QrCode,
   ScanLine,
   Printer,
-  X
+  X,
+  MapPin,
+  Navigation,
+  Compass,
+  ExternalLink,
+  ShieldAlert,
+  ShieldCheck,
+  Loader2
 } from 'lucide-react';
 import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { QRScannerModal } from './QRScannerModal';
@@ -32,6 +40,7 @@ interface SelfAttendanceProps {
   onRecordAttendance: (record: AttendanceRecord) => Promise<void> | void;
   onGoToStats: () => void;
   logos?: SchoolLogos;
+  locationConfig?: SchoolLocationConfig;
 }
 
 export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
@@ -42,7 +51,8 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
   schedules,
   onRecordAttendance,
   onGoToStats,
-  logos
+  logos,
+  locationConfig
 }) => {
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
@@ -76,6 +86,61 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // GPS Geolocation Verification State
+  const [gpsStatus, setGpsStatus] = useState<'IDLE' | 'LOCATING' | 'SUCCESS' | 'ERROR'>('IDLE');
+  const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number; accuracy: number } | null>(null);
+  const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
+  const [isInsideRadius, setIsInsideRadius] = useState<boolean | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+
+  const schoolConfig = locationConfig || DEFAULT_SCHOOL_LOCATION;
+
+  const requestGpsLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGpsStatus('ERROR');
+      setGpsError('Browser atau perangkat ini tidak mendukung fitur lokasi GPS.');
+      return;
+    }
+
+    setGpsStatus('LOCATING');
+    setGpsError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        const res = validateUserLocation(latitude, longitude, schoolConfig);
+        setUserCoords({ latitude, longitude, accuracy });
+        setDistanceMeters(res.distanceMeters);
+        setIsInsideRadius(res.isInside);
+        setGpsStatus('SUCCESS');
+      },
+      (err) => {
+        setGpsStatus('ERROR');
+        if (err.code === err.PERMISSION_DENIED) {
+          setGpsError(
+            'Izin akses lokasi GPS ditolak oleh browser / ponsel. Mohon aktifkan izin Lokasi (Allow Location) agar sistem dapat memverifikasi kehadiran Anda di SMAN 1 Julok.'
+          );
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setGpsError('Sinyal GPS tidak terdeteksi. Pastikan fitur Lokasi / GPS di ponsel Anda sudah dalam keadaan aktif.');
+        } else if (err.code === err.TIMEOUT) {
+          setGpsError('Waktu pencarian sinyal GPS habis. Silakan coba klik tombol "Deteksi Ulang GPS".');
+        } else {
+          setGpsError(err.message || 'Gagal mendeteksi lokasi GPS perangkat.');
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      }
+    );
+  }, [schoolConfig]);
+
+  // Request GPS when component mounts or schoolConfig changes
+  useEffect(() => {
+    requestGpsLocation();
+  }, [requestGpsLocation]);
 
   // Determine day name when date changes
   const handleDateChange = (dateStr: string) => {
@@ -325,6 +390,32 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       return;
     }
 
+    // GPS Geolocation Validation
+    if (gpsStatus === 'LOCATING') {
+      alert('Sedang mendeteksi koordinat GPS. Harap tunggu beberapa detik...');
+      return;
+    }
+
+    if (schoolConfig.strictValidation) {
+      if (gpsStatus === 'ERROR' || !userCoords) {
+        alert(
+          'Presensi Mandiri Terkunci!\n\n' +
+          'Lokasi GPS Anda belum berhasil diverifikasi. Pastikan fitur Lokasi / GPS di ponsel Anda aktif dan berikan izin akses lokasi pada browser, lalu klik "Deteksi Ulang GPS".'
+        );
+        return;
+      }
+
+      if (isInsideRadius === false) {
+        alert(
+          `Presensi Mandiri Ditolak!\n\n` +
+          `Posisi Anda terdeteksi berjarak ${formatDistanceMeters(distanceMeters || 0)} dari SMAN 1 Julok.\n` +
+          `Sistem membatasi absensi mandiri maksimal dalam radius ${schoolConfig.radiusMeters} meter dari lingkungan sekolah.\n\n` +
+          `Silakan lakukan presensi setelah berada di area SMA Negeri 1 Julok.`
+        );
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     const teacher = teachers.find(t => t.id === selectedTeacherId)!;
@@ -367,7 +458,16 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       timestamp: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       topic: topic.trim() || 'Pembelajaran Tatap Muka Sesuai RPP / Modul Ajar',
       notes: notes.trim(),
-      recordedBy: 'MANDIRI'
+      recordedBy: 'MANDIRI',
+      // Verified GPS Geolocation Data
+      latitude: userCoords?.latitude,
+      longitude: userCoords?.longitude,
+      accuracy: userCoords?.accuracy ? Math.round(userCoords.accuracy) : undefined,
+      distanceMeters: distanceMeters !== null ? distanceMeters : undefined,
+      locationStatus: isInsideRadius ? 'VALID' : (gpsStatus === 'ERROR' ? 'GPS_DISABLED' : 'OUT_OF_RANGE'),
+      locationAddress: isInsideRadius
+        ? `SMAN 1 Julok (~${distanceMeters ?? 0}m)`
+        : `Di Luar SMAN 1 Julok (~${formatDistanceMeters(distanceMeters ?? 0)})`
     };
 
     try {
@@ -398,6 +498,7 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
     setTopic('');
     setNotes('');
     setScannedClassNotice(null);
+    requestGpsLocation();
   };
 
   const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
@@ -587,6 +688,35 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
               <div className="flex justify-between border-b border-slate-200 pb-2">
                 <span className="text-slate-500">Topik / Materi:</span>
                 <span className="font-medium text-slate-700 text-right max-w-[220px]">{submittedRecord.topic}</span>
+              </div>
+            )}
+            {submittedRecord.locationStatus && (
+              <div className="flex justify-between items-start border-b border-slate-200 pb-2">
+                <span className="text-slate-500">Lokasi GPS:</span>
+                <div className="text-right">
+                  {submittedRecord.locationStatus === 'VALID' ? (
+                    <span className="font-bold text-emerald-700 flex items-center gap-1 justify-end">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      Dalam SMAN 1 Julok (~{submittedRecord.distanceMeters ?? 0}m)
+                    </span>
+                  ) : (
+                    <span className="font-bold text-amber-700 flex items-center gap-1 justify-end">
+                      <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      Di Luar Radius (~{submittedRecord.distanceMeters ?? 0}m)
+                    </span>
+                  )}
+                  {submittedRecord.latitude && submittedRecord.longitude && (
+                    <a
+                      href={getGoogleMapsUrl(submittedRecord.latitude, submittedRecord.longitude)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-blue-600 hover:underline flex items-center gap-1 justify-end mt-0.5"
+                    >
+                      <span>Lihat Koordinat di Google Maps</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  )}
+                </div>
               </div>
             )}
             <div className="pt-2 flex items-center gap-3">
@@ -864,12 +994,168 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
             )}
           </div>
 
-          {/* Step 4: Foto Selfie di Kelas */}
+          {/* Step 4: Validasi Lokasi GPS Lingkungan Sekolah (Geofencing) */}
           <div className="space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
                   4
+                </div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-blue-600" />
+                  Validasi Lokasi GPS Sekolah
+                </h3>
+              </div>
+              <div>
+                {gpsStatus === 'LOCATING' && (
+                  <span className="text-xs text-blue-600 font-semibold flex items-center gap-1.5 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Mendeteksi GPS...
+                  </span>
+                )}
+                {gpsStatus === 'SUCCESS' && isInsideRadius && (
+                  <span className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    Dalam Radius Sekolah
+                  </span>
+                )}
+                {gpsStatus === 'SUCCESS' && !isInsideRadius && (
+                  <span className="text-xs text-rose-700 font-bold flex items-center gap-1.5 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200">
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                    Di Luar Lingkungan Sekolah
+                  </span>
+                )}
+                {gpsStatus === 'ERROR' && (
+                  <span className="text-xs text-amber-700 font-bold flex items-center gap-1.5 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    GPS Belum Terdeteksi
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Sistem memverifikasi bahwa Anda benar-benar berada di lingkungan SMA Negeri 1 Julok saat melakukan presensi mandiri (radius maksimal {schoolConfig.radiusMeters} meter).
+            </p>
+
+            <div className={`rounded-2xl p-4 sm:p-5 border transition-all ${
+              gpsStatus === 'SUCCESS' && isInsideRadius
+                ? 'bg-emerald-50/60 border-emerald-200'
+                : gpsStatus === 'SUCCESS' && !isInsideRadius
+                ? 'bg-rose-50/70 border-rose-300'
+                : gpsStatus === 'ERROR'
+                ? 'bg-amber-50/70 border-amber-300'
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+                    gpsStatus === 'SUCCESS' && isInsideRadius
+                      ? 'bg-emerald-600 text-white'
+                      : gpsStatus === 'SUCCESS' && !isInsideRadius
+                      ? 'bg-rose-600 text-white'
+                      : gpsStatus === 'ERROR'
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-blue-600 text-white'
+                  }`}>
+                    {gpsStatus === 'LOCATING' ? (
+                      <Navigation className="w-6 h-6 animate-pulse" />
+                    ) : gpsStatus === 'SUCCESS' && isInsideRadius ? (
+                      <ShieldCheck className="w-6 h-6" />
+                    ) : gpsStatus === 'SUCCESS' && !isInsideRadius ? (
+                      <ShieldAlert className="w-6 h-6" />
+                    ) : (
+                      <Compass className="w-6 h-6" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Titik Acuan: {schoolConfig.schoolName || 'SMA Negeri 1 Julok'}
+                    </div>
+                    <div className="text-sm font-extrabold text-slate-900 mt-0.5">
+                      {gpsStatus === 'LOCATING' ? (
+                        'Mencari titik koordinat GPS ponsel Anda...'
+                      ) : distanceMeters !== null ? (
+                        <span>
+                          Jarak Anda:{' '}
+                          <span className={isInsideRadius ? 'text-emerald-700 font-black' : 'text-rose-700 font-black'}>
+                            ~{formatDistanceMeters(distanceMeters)}
+                          </span>
+                          {' '}(Batas: {schoolConfig.radiusMeters} m)
+                        </span>
+                      ) : (
+                        'Menunggu sinyal GPS perangkat'
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {gpsStatus === 'SUCCESS' && isInsideRadius && (
+                        <span className="text-emerald-800 font-medium">
+                          ✓ Posisi terverifikasi di area kampus SMA Negeri 1 Julok. Presensi diperbolehkan.
+                        </span>
+                      )}
+                      {gpsStatus === 'SUCCESS' && !isInsideRadius && (
+                        <span className="text-rose-700 font-medium">
+                          ⚠️ Posisi Anda melebihi batas radius {schoolConfig.radiusMeters}m dari sekolah. Presensi mandiri ditolak.
+                        </span>
+                      )}
+                      {gpsStatus === 'ERROR' && (
+                        <span className="text-amber-800 font-medium">
+                          {gpsError || 'Gagal membaca koordinat GPS perangkat. Pastikan izin lokasi aktif.'}
+                        </span>
+                      )}
+                      {gpsStatus === 'LOCATING' && (
+                        <span className="text-slate-500">
+                          Pastikan izin lokasi (GPS) di browser ponsel Anda diizinkan (Allow Location).
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap sm:flex-col items-stretch gap-2 w-full sm:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={requestGpsLocation}
+                    disabled={gpsStatus === 'LOCATING'}
+                    className="px-3.5 py-2 text-xs font-bold rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${gpsStatus === 'LOCATING' ? 'animate-spin text-blue-600' : ''}`} />
+                    <span>Deteksi Ulang GPS</span>
+                  </button>
+                  {userCoords && (
+                    <a
+                      href={getGoogleMapsUrl(userCoords.latitude, userCoords.longitude)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Cek di Google Maps</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Coordinates Detail pill */}
+              {userCoords && (
+                <div className="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span>
+                    Koordinat: <strong className="text-slate-700">{userCoords.latitude.toFixed(6)}, {userCoords.longitude.toFixed(6)}</strong>
+                  </span>
+                  <span>
+                    Akurasi GPS: <strong className="text-slate-700">±{Math.round(userCoords.accuracy)} meter</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Step 5: Foto Selfie di Kelas */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                  5
                 </div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Camera className="w-4 h-4 text-blue-600" />
@@ -1002,11 +1288,11 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
             </div>
           </div>
 
-          {/* Step 5: Jurnal Mengajar Singkat */}
+          {/* Step 6: Jurnal Mengajar Singkat */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
               <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
-                5
+                6
               </div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-blue-600" />
@@ -1047,13 +1333,18 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
           <div className="pt-4 border-t border-slate-100">
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-60"
+              disabled={isSubmitting || (schoolConfig.strictValidation && isInsideRadius === false)}
+              className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
                   <span>Menyimpan Presensi & Foto...</span>
+                </>
+              ) : schoolConfig.strictValidation && isInsideRadius === false ? (
+                <>
+                  <ShieldAlert className="w-5 h-5 text-rose-300" />
+                  <span>Terkunci: Anda Berada di Luar Lingkungan SMAN 1 Julok</span>
                 </>
               ) : (
                 <>
@@ -1062,9 +1353,15 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                 </>
               )}
             </button>
-            <p className="text-[11px] text-center text-slate-400 mt-2">
-              Dengan menekan tombol di atas, data presensi dan bukti foto selfie kelas akan langsung tercatat pada statistik kehadiran hari ini.
-            </p>
+            {schoolConfig.strictValidation && isInsideRadius === false ? (
+              <p className="text-[11px] text-center text-rose-600 font-semibold mt-2">
+                Presensi mandiri terkunci karena posisi Anda berjarak {formatDistanceMeters(distanceMeters || 0)} (melebihi batas radius {schoolConfig.radiusMeters} meter dari SMA Negeri 1 Julok).
+              </p>
+            ) : (
+              <p className="text-[11px] text-center text-slate-400 mt-2">
+                Dengan menekan tombol di atas, data presensi, koordinat lokasi GPS terverifikasi, dan bukti foto selfie kelas akan langsung tercatat pada statistik kehadiran hari ini.
+              </p>
+            )}
           </div>
         </form>
       )}
