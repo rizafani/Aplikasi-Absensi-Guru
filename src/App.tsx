@@ -328,6 +328,11 @@ export default function App() {
     await FirestoreService.bulkSaveSchedules(newSchedules);
   };
 
+  const handleReplaceAllSchedules = async (newSchedules: ScheduleItem[]) => {
+    setSchedules(newSchedules);
+    await FirestoreService.replaceAllSchedules(newSchedules);
+  };
+
   const handleDeleteSchedule = async (id: string) => {
     setSchedules((prev) => prev.filter((s) => s.id !== id));
     await FirestoreService.deleteSchedule(id);
@@ -504,6 +509,7 @@ export default function App() {
             onSaveSchedule={handleSaveSchedule}
             onDeleteSchedule={handleDeleteSchedule}
             onBulkSaveSchedules={handleBulkSaveSchedules}
+            onReplaceAllSchedules={handleReplaceAllSchedules}
             onSaveTimeSlot={handleSaveTimeSlot}
             onDeleteTimeSlot={handleDeleteTimeSlot}
             onBulkSaveTimeSlots={handleBulkSaveTimeSlots}

@@ -73,6 +73,16 @@ import {
 import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { ReportsPage } from './ReportsPage';
 import { AdminRealtimeDashboard } from './AdminRealtimeDashboard';
+import { ScheduleExcelImportModal } from './ScheduleExcelImportModal';
+import {
+  downloadScheduleExcelTemplate,
+  exportSchedulesToExcel,
+  normalizeDay,
+  matchTeacher,
+  matchClass,
+  matchSubject,
+  matchTimeSlots
+} from '../utils/scheduleExcel';
 
 interface AdminDashboardProps {
   session: UserSession;
@@ -98,6 +108,7 @@ interface AdminDashboardProps {
   onSaveSchedule: (data: ScheduleItem) => void;
   onDeleteSchedule: (id: string) => void;
   onBulkSaveSchedules?: (data: ScheduleItem[]) => void;
+  onReplaceAllSchedules?: (data: ScheduleItem[]) => void;
   onSaveTimeSlot?: (data: TimeSlot) => void;
   onDeleteTimeSlot?: (id: string) => void;
   onBulkSaveTimeSlots?: (data: TimeSlot[]) => void;
@@ -133,6 +144,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSaveSchedule,
   onDeleteSchedule,
   onBulkSaveSchedules,
+  onReplaceAllSchedules,
   onSaveTimeSlot,
   onDeleteTimeSlot,
   onBulkSaveTimeSlots,
@@ -145,6 +157,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'location' | 'import' | 'branding' | 'reports'>('realtime');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Schedule Excel Import Modal State
+  const [isScheduleExcelModalOpen, setIsScheduleExcelModalOpen] = useState<boolean>(false);
 
   // GPS Geofence Location Configuration State
   const [locationForm, setLocationForm] = useState<SchoolLocationConfig>(locationConfig);
@@ -248,7 +263,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [scheduleFilterTeacher, setScheduleFilterTeacher] = useState<string>('all');
 
   // Bulk Import state
-  const [importType, setImportType] = useState<'teachers' | 'classes' | 'subjects'>('teachers');
+  const [importType, setImportType] = useState<'schedules' | 'teachers' | 'classes' | 'subjects'>('schedules');
   const [importText, setImportText] = useState<string>('');
   const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
 
@@ -810,6 +825,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setImportSuccessMsg(`Berhasil mengimpor ${newSubjects.length} data mata pelajaran ke Cloud Database.`);
           setImportText('');
         }
+      } else if (importType === 'schedules') {
+        const newSchedules: ScheduleItem[] = [];
+        lines.forEach((line) => {
+          const parts = line.split(/[,;\t]/).map((p) => p.trim());
+          if (parts.length >= 5) {
+            const [dayStr, teacherStr, classStr, subjStr, timeStr, roomStr, notesStr] = parts;
+            const matchedDay = normalizeDay(dayStr);
+            const matchedTeacher = matchTeacher(teacherStr, teachers);
+            const matchedClass = matchClass(classStr, classes);
+            const matchedSubj = matchSubject(subjStr, subjects);
+            const matchedTime = matchTimeSlots(timeStr, timeSlots);
+
+            if (matchedDay && matchedTeacher && matchedClass && matchedSubj && matchedTime.primarySlotId) {
+              newSchedules.push({
+                id: `sch-imp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                day: matchedDay,
+                teacherId: matchedTeacher.id,
+                classRoomId: matchedClass.id,
+                subjectId: matchedSubj.id,
+                timeSlotId: matchedTime.primarySlotId,
+                timeSlotIds: matchedTime.allSlotIds,
+                room: roomStr || '',
+                notes: notesStr || ''
+              });
+            }
+          }
+        });
+
+        if (newSchedules.length > 0) {
+          if (onBulkSaveSchedules) {
+            onBulkSaveSchedules(newSchedules);
+            setImportSuccessMsg(`Berhasil mengimpor ${newSchedules.length} data jadwal mengajar ke Cloud Database.`);
+            setImportText('');
+          }
+        } else {
+          alert('Tidak ada baris jadwal yang cocok. Pastikan kolom: Hari, Guru, Kelas, Mapel, dan Jam sesuai dengan data master.');
+        }
       }
     } catch {
       alert('Format import tidak valid. Pastikan data dipisahkan dengan koma atau tab.');
@@ -982,6 +1034,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const handleImportSchedulesFromExcel = async (newSchedules: ScheduleItem[], replaceAll: boolean) => {
+    if (replaceAll && onReplaceAllSchedules) {
+      await onReplaceAllSchedules(newSchedules);
+    } else if (onBulkSaveSchedules) {
+      await onBulkSaveSchedules(newSchedules);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
       {/* Top Banner */}
@@ -1088,13 +1148,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </p>
             </div>
 
-            <button
-              onClick={() => handleOpenScheduleModal()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 self-start sm:self-auto"
-            >
-              <Plus className="w-4 h-4" />
-              Tambah Jadwal Baru
-            </button>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() =>
+                  downloadScheduleExcelTemplate(teachers, classes, subjects, timeSlots)
+                }
+                className="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                title="Unduh template Excel dengan sheet referensi guru, kelas, mapel & jam"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <span>Template Excel</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsScheduleExcelModalOpen(true)}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="Import jadwal dari file .xlsx / .xls"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+                <span>Import Excel (.xlsx)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  exportSchedulesToExcel(schedules, teachers, classes, subjects, timeSlots)
+                }
+                disabled={schedules.length === 0}
+                className="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                title="Ekspor seluruh jadwal mengajar saat ini ke file Excel"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Export Excel ({schedules.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenScheduleModal()}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Jadwal</span>
+              </button>
+            </div>
           </div>
 
           {/* Filter options */}
@@ -2155,8 +2253,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {[
+              { id: 'schedules', label: 'Import Jadwal Mengajar (Excel .xlsx)' },
               { id: 'teachers', label: 'Import Data Guru' },
               { id: 'classes', label: 'Import Data Kelas' },
               { id: 'subjects', label: 'Import Mata Pelajaran' }
@@ -2167,7 +2266,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   setImportType(it.id as typeof importType);
                   setImportSuccessMsg(null);
                 }}
-                className={`px-3 py-2 text-xs font-bold rounded-xl transition-all ${
+                className={`px-3 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
                   importType === it.id
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -2178,8 +2277,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             ))}
           </div>
 
+          {importType === 'schedules' && (
+            <div className="p-5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-300 rounded-2xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-emerald-950">
+                      Import File Excel Jadwal Mengajar (.xlsx / .xls)
+                    </h4>
+                    <p className="text-xs text-emerald-800">
+                      Unggah dokumen Excel jadwal resmi mingguan atau semester SMA NEGERI 1 JULOK.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadScheduleExcelTemplate(teachers, classes, subjects, timeSlots)
+                    }
+                    className="px-3 py-2 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Unduh Template Excel</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsScheduleExcelModalOpen(true)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Buka Dialog Unggah Excel</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 space-y-1">
             <strong>Format Baris (Pisahkan dengan koma atau Tab/Excel):</strong>
+            {importType === 'schedules' && (
+              <p className="font-mono text-[11px] text-slate-800 bg-white p-2 rounded border border-slate-200">
+                Hari, Nama Guru / NIP, Kelas, Mata Pelajaran, Jam Pelajaran, Ruang/Catatan<br />
+                Contoh:<br />
+                Senin, Ahmad Dahlan, S.Pd., X-1, Bahasa Indonesia, Jam 1-2, R.101<br />
+                Selasa, Siti Aminah, M.Pd., XI MIPA 1, Matematika Wajib, Jam 3-4, Lab Komputer
+              </p>
+            )}
             {importType === 'teachers' && (
               <p className="font-mono text-[11px] text-slate-800 bg-white p-2 rounded border border-slate-200">
                 Nama Guru, NIP, Jenis Kelamin(L/P), No HP, Email<br />
@@ -3744,6 +3893,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         onClose={() => setIsClassQRModalOpen(false)}
         classes={classes}
         initialClassId={selectedQRClassId}
+      />
+
+      {/* Schedule Excel Import Modal */}
+      <ScheduleExcelImportModal
+        isOpen={isScheduleExcelModalOpen}
+        onClose={() => setIsScheduleExcelModalOpen(false)}
+        teachers={teachers}
+        classes={classes}
+        subjects={subjects}
+        timeSlots={timeSlots}
+        onImportSchedules={handleImportSchedulesFromExcel}
       />
     </div>
   );

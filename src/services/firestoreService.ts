@@ -417,6 +417,21 @@ export const FirestoreService = {
     }
   },
 
+  async replaceAllSchedules(newSchedules: ScheduleItem[]): Promise<void> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.SCHEDULES));
+      const batch = writeBatch(db);
+      snap.forEach((d) => batch.delete(d.ref));
+      newSchedules.forEach((s) => {
+        const ref = doc(db, COLLECTIONS.SCHEDULES, s.id);
+        batch.set(ref, cleanForFirestore(s));
+      });
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.SCHEDULES);
+    }
+  },
+
   // Save / Update Piket Account
   async savePiketAccount(account: PiketAccount): Promise<void> {
     try {
