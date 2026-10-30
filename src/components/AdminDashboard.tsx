@@ -74,6 +74,7 @@ import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { ReportsPage } from './ReportsPage';
 import { AdminRealtimeDashboard } from './AdminRealtimeDashboard';
 import { ScheduleExcelImportModal } from './ScheduleExcelImportModal';
+import { ClassTimetableMatrix } from './ClassTimetableMatrix';
 import {
   downloadScheduleExcelTemplate,
   exportSchedulesToExcel,
@@ -258,7 +259,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     period: '07:30 - 08:15'
   });
 
-  // Filter for schedule tab
+  // View mode & filter for schedule tab
+  const [scheduleViewMode, setScheduleViewMode] = useState<'matrix' | 'list'>('matrix');
   const [scheduleFilterDay, setScheduleFilterDay] = useState<string>('all');
   const [scheduleFilterTeacher, setScheduleFilterTeacher] = useState<string>('all');
 
@@ -516,6 +518,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleDeleteSchedule = (id: string) => {
     if (confirm('Hapus jadwal mengajar ini?')) {
       onDeleteSchedule(id);
+    }
+  };
+
+  const handleDeleteClassSchedules = (classRoomId: string) => {
+    if (onReplaceAllSchedules) {
+      const remaining = schedules.filter((s) => s.classRoomId !== classRoomId);
+      onReplaceAllSchedules(remaining);
+    } else {
+      const toDelete = schedules.filter((s) => s.classRoomId === classRoomId);
+      toDelete.forEach((s) => onDeleteSchedule(s.id));
     }
   };
 
@@ -1137,18 +1149,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* TAB CONTENT: 1. JADWAL MENGAJAR */}
       {adminTab === 'schedules' && (
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div className="space-y-5">
+          {/* Top Bar: View Mode Switcher + Excel Tools + Action Buttons */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900">
-                Pengaturan Jadwal Mengajar Guru
-              </h3>
-              <p className="text-xs text-slate-500">
-                Hubungkan Guru, Hari Mengajar, Kelas, Mapel, dan Jam Pelajaran.
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-900">
+                  Pengaturan Jadwal Mengajar Guru
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800">
+                  {schedules.length} Jadwal Terdata
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Visualisasi matriks per kelas untuk input langsung satu klik, deteksi bentrok jadwal guru, cetak jadwal kelas, dan import/export Excel.
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+              {/* View Switcher: Matrix vs List */}
+              <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => setScheduleViewMode('matrix')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    scheduleViewMode === 'matrix'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Tampilan visual matriks mingguan per kelas (Senin-Sabtu)"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Visual Matriks per Kelas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleViewMode('list')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    scheduleViewMode === 'list'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Tampilan daftar baris jadwal lengkap dengan filter"
+                >
+                  <TableIcon className="w-3.5 h-3.5" />
+                  <span>Daftar Baris (List)</span>
+                </button>
+              </div>
+
+              {/* Excel Tools & Add */}
               <button
                 type="button"
                 onClick={() =>
@@ -1158,17 +1207,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 title="Unduh template Excel dengan sheet referensi guru, kelas, mapel & jam"
               >
                 <Download className="w-3.5 h-3.5 text-slate-500" />
-                <span>Template Excel</span>
+                <span className="hidden sm:inline">Template Excel</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsScheduleExcelModalOpen(true)}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
+                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
                 title="Import jadwal dari file .xlsx / .xls"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-                <span>Import Excel (.xlsx)</span>
+                <span>Import Excel</span>
               </button>
 
               <button
@@ -1181,7 +1230,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 title="Ekspor seluruh jadwal mengajar saat ini ke file Excel"
               >
                 <Download className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Export Excel ({schedules.length})</span>
+                <span>Export ({schedules.length})</span>
               </button>
 
               <button
@@ -1195,107 +1244,125 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          {/* Filter options */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="font-semibold text-slate-600">Filter Hari:</span>
-              <select
-                value={scheduleFilterDay}
-                onChange={(e) => setScheduleFilterDay(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white"
-              >
-                <option value="all">Semua Hari</option>
-                {INDONESIAN_DAYS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+          {/* Conditional View: 1. Visual Matrix per Class OR 2. Table List */}
+          {scheduleViewMode === 'matrix' ? (
+            <ClassTimetableMatrix
+              classes={classes}
+              teachers={teachers}
+              subjects={subjects}
+              timeSlots={timeSlots}
+              schedules={schedules}
+              logos={currentLogos}
+              onSaveSchedule={onSaveSchedule}
+              onDeleteSchedule={onDeleteSchedule}
+              onBulkSaveSchedules={onBulkSaveSchedules}
+              onDeleteClassSchedules={handleDeleteClassSchedules}
+            />
+          ) : (
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-5">
+              {/* Filter options */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-semibold text-slate-600">Filter Hari:</span>
+                  <select
+                    value={scheduleFilterDay}
+                    onChange={(e) => setScheduleFilterDay(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white"
+                  >
+                    <option value="all">Semua Hari</option>
+                    {INDONESIAN_DAYS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-semibold text-slate-600">Filter Guru:</span>
+                  <select
+                    value={scheduleFilterTeacher}
+                    onChange={(e) => setScheduleFilterTeacher(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white max-w-xs truncate"
+                  >
+                    <option value="all">Semua Guru ({teachers.length})</option>
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Schedule Table */}
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">Hari</th>
+                      <th className="p-3">Guru Pengampu</th>
+                      <th className="p-3">Kelas</th>
+                      <th className="p-3">Mata Pelajaran</th>
+                      <th className="p-3">Jam Pelajaran</th>
+                      <th className="p-3">Catatan / Ruang</th>
+                      <th className="p-3 text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {[...schedules]
+                      .filter((s) => scheduleFilterDay === 'all' || s.day === scheduleFilterDay)
+                      .filter((s) => scheduleFilterTeacher === 'all' || s.teacherId === scheduleFilterTeacher)
+                      .sort((a, b) => {
+                        const dayDiff = INDONESIAN_DAYS.indexOf(a.day) - INDONESIAN_DAYS.indexOf(b.day);
+                        if (dayDiff !== 0) return dayDiff;
+                        const slotAIdx = timeSlots.findIndex((t) => t.id === a.timeSlotId);
+                        const slotBIdx = timeSlots.findIndex((t) => t.id === b.timeSlotId);
+                        return (slotAIdx >= 0 ? slotAIdx : 999) - (slotBIdx >= 0 ? slotBIdx : 999);
+                      })
+                      .map((s) => {
+                        const teacher = teachers.find((t) => t.id === s.teacherId);
+                        const cls = classes.find((c) => c.id === s.classRoomId);
+                        const sub = subjects.find((sb) => sb.id === s.subjectId);
+                        const slotInfo = formatScheduleTimeSlots(s, timeSlots);
+
+                        return (
+                          <tr key={s.id} className="hover:bg-slate-50">
+                            <td className="p-3 font-bold text-blue-700">{s.day}</td>
+                            <td className="p-3 font-semibold text-slate-900">{teacher?.name || '-'}</td>
+                            <td className="p-3 font-bold text-slate-700">{cls?.name || '-'}</td>
+                            <td className="p-3 text-slate-800">{sub?.name || '-'}</td>
+                            <td className="p-3 text-slate-700 font-mono">
+                              <span className="font-bold text-blue-800">{slotInfo.label}</span>
+                              <span className="text-slate-500 ml-1.5 text-[11px]">({slotInfo.period} WIB)</span>
+                            </td>
+                            <td className="p-3 text-slate-500 italic">{s.notes || '-'}</td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => handleOpenScheduleModal(s)}
+                                  className="p-1 text-slate-500 hover:text-blue-600 rounded transition-colors"
+                                  title="Edit Jadwal"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteSchedule(s.id)}
+                                  className="p-1 text-slate-500 hover:text-rose-600 rounded transition-colors"
+                                  title="Hapus Jadwal"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-
-            <div className="flex items-center gap-2 text-xs">
-              <span className="font-semibold text-slate-600">Filter Guru:</span>
-              <select
-                value={scheduleFilterTeacher}
-                onChange={(e) => setScheduleFilterTeacher(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white max-w-xs truncate"
-              >
-                <option value="all">Semua Guru ({teachers.length})</option>
-                {teachers.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Schedule Table */}
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
-                <tr>
-                  <th className="p-3">Hari</th>
-                  <th className="p-3">Guru Pengampu</th>
-                  <th className="p-3">Kelas</th>
-                  <th className="p-3">Mata Pelajaran</th>
-                  <th className="p-3">Jam Pelajaran</th>
-                  <th className="p-3">Catatan / Ruang</th>
-                  <th className="p-3 text-center">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {[...schedules]
-                  .filter((s) => scheduleFilterDay === 'all' || s.day === scheduleFilterDay)
-                  .filter((s) => scheduleFilterTeacher === 'all' || s.teacherId === scheduleFilterTeacher)
-                  .sort((a, b) => {
-                    const dayDiff = INDONESIAN_DAYS.indexOf(a.day) - INDONESIAN_DAYS.indexOf(b.day);
-                    if (dayDiff !== 0) return dayDiff;
-                    const slotAIdx = timeSlots.findIndex((t) => t.id === a.timeSlotId);
-                    const slotBIdx = timeSlots.findIndex((t) => t.id === b.timeSlotId);
-                    return (slotAIdx >= 0 ? slotAIdx : 999) - (slotBIdx >= 0 ? slotBIdx : 999);
-                  })
-                  .map((s) => {
-                    const teacher = teachers.find((t) => t.id === s.teacherId);
-                    const cls = classes.find((c) => c.id === s.classRoomId);
-                    const sub = subjects.find((sb) => sb.id === s.subjectId);
-                    const slotInfo = formatScheduleTimeSlots(s, timeSlots);
-
-                    return (
-                      <tr key={s.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-bold text-blue-700">{s.day}</td>
-                        <td className="p-3 font-semibold text-slate-900">{teacher?.name || '-'}</td>
-                        <td className="p-3 font-bold text-slate-700">{cls?.name || '-'}</td>
-                        <td className="p-3 text-slate-800">{sub?.name || '-'}</td>
-                        <td className="p-3 text-slate-700 font-mono">
-                          <span className="font-bold text-blue-800">{slotInfo.label}</span>
-                          <span className="text-slate-500 ml-1.5 text-[11px]">({slotInfo.period} WIB)</span>
-                        </td>
-                        <td className="p-3 text-slate-500 italic">{s.notes || '-'}</td>
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => handleOpenScheduleModal(s)}
-                              className="p-1 text-slate-500 hover:text-blue-600 rounded transition-colors"
-                              title="Edit Jadwal"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteSchedule(s.id)}
-                              className="p-1 text-slate-500 hover:text-rose-600 rounded transition-colors"
-                              title="Hapus Jadwal"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
+          )}
         </div>
       )}
 
