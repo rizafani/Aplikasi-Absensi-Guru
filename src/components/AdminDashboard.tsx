@@ -124,6 +124,7 @@ interface AdminDashboardProps {
   onToggleDatabaseMode?: () => void;
   onExportBackup?: () => void;
   onRestoreBackup?: (json: string) => void;
+  onResetDefaultData?: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -163,7 +164,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   databaseMode = 'direct',
   onToggleDatabaseMode,
   onExportBackup,
-  onRestoreBackup
+  onRestoreBackup,
+  onResetDefaultData
 }) => {
   const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'location' | 'import' | 'branding' | 'reports'>('realtime');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -1091,6 +1093,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          {onResetDefaultData && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Muat ulang seluruh data master standar SMA Negeri 1 Julok (16 Guru, 12 Kelas, 16 Mapel, 10 Jam Pelajaran, dan Jadwal Lengkap)?')) {
+                  onResetDefaultData();
+                }
+              }}
+              className="px-3.5 py-2 bg-amber-600/90 hover:bg-amber-600 text-white text-xs font-semibold rounded-xl border border-amber-500/50 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Isi data guru, kelas, mapel, dan jadwal standar SMA Negeri 1 Julok"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-200" />
+              <span>Muat Data Standar SMAN 1 Julok</span>
+            </button>
+          )}
+
           {onExportBackup && (
             <button
               type="button"

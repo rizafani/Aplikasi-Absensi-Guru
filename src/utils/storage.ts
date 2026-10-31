@@ -1,5 +1,5 @@
 import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, UserSession, SchoolLogos, PiketAccount, SchoolLocationConfig } from '../types';
-import { INITIAL_TIME_SLOTS } from '../data/initialData';
+import { INITIAL_TEACHERS, INITIAL_CLASSES, INITIAL_SUBJECTS, INITIAL_TIME_SLOTS, INITIAL_SCHEDULES } from '../data/initialData';
 import { DEFAULT_SCHOOL_LOCATION } from './geo';
 
 export const DEFAULT_LOGOS: SchoolLogos = {
@@ -113,21 +113,36 @@ function safeSet<T>(key: string, value: T): void {
 
 export const Storage = {
   getTeachers(): Teacher[] {
-    return safeGet<Teacher[]>(STORAGE_KEYS.TEACHERS, []);
+    const list = safeGet<Teacher[]>(STORAGE_KEYS.TEACHERS, []);
+    if (!list || list.length === 0) {
+      safeSet(STORAGE_KEYS.TEACHERS, INITIAL_TEACHERS);
+      return INITIAL_TEACHERS;
+    }
+    return list;
   },
   saveTeachers(data: Teacher[]): void {
     safeSet(STORAGE_KEYS.TEACHERS, data);
   },
 
   getClasses(): ClassRoom[] {
-    return safeGet<ClassRoom[]>(STORAGE_KEYS.CLASSES, []);
+    const list = safeGet<ClassRoom[]>(STORAGE_KEYS.CLASSES, []);
+    if (!list || list.length === 0) {
+      safeSet(STORAGE_KEYS.CLASSES, INITIAL_CLASSES);
+      return INITIAL_CLASSES;
+    }
+    return list;
   },
   saveClasses(data: ClassRoom[]): void {
     safeSet(STORAGE_KEYS.CLASSES, data);
   },
 
   getSubjects(): Subject[] {
-    return safeGet<Subject[]>(STORAGE_KEYS.SUBJECTS, []);
+    const list = safeGet<Subject[]>(STORAGE_KEYS.SUBJECTS, []);
+    if (!list || list.length === 0) {
+      safeSet(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS);
+      return INITIAL_SUBJECTS;
+    }
+    return list;
   },
   saveSubjects(data: Subject[]): void {
     safeSet(STORAGE_KEYS.SUBJECTS, data);
@@ -146,7 +161,12 @@ export const Storage = {
   },
 
   getSchedules(): ScheduleItem[] {
-    return safeGet<ScheduleItem[]>(STORAGE_KEYS.SCHEDULES, []);
+    const list = safeGet<ScheduleItem[]>(STORAGE_KEYS.SCHEDULES, []);
+    if (!list || list.length === 0) {
+      safeSet(STORAGE_KEYS.SCHEDULES, INITIAL_SCHEDULES);
+      return INITIAL_SCHEDULES;
+    }
+    return list;
   },
   saveSchedules(data: ScheduleItem[]): void {
     safeSet(STORAGE_KEYS.SCHEDULES, data);
@@ -253,6 +273,14 @@ export const Storage = {
       console.error('Failed to import database:', e);
       return false;
     }
+  },
+
+  resetToDefaultData(): void {
+    safeSet(STORAGE_KEYS.TEACHERS, INITIAL_TEACHERS);
+    safeSet(STORAGE_KEYS.CLASSES, INITIAL_CLASSES);
+    safeSet(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS);
+    safeSet(STORAGE_KEYS.TIME_SLOTS, INITIAL_TIME_SLOTS);
+    safeSet(STORAGE_KEYS.SCHEDULES, INITIAL_SCHEDULES);
   },
 
   clearAll(): void {
