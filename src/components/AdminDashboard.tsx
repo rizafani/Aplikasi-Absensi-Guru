@@ -68,7 +68,8 @@ import {
   Compass,
   ExternalLink,
   Globe,
-  Crosshair
+  Crosshair,
+  Database
 } from 'lucide-react';
 import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { ReportsPage } from './ReportsPage';
@@ -119,6 +120,10 @@ interface AdminDashboardProps {
   onSaveLocationConfig?: (config: SchoolLocationConfig) => void;
   onRecordAttendance?: (record: AttendanceRecord) => void;
   onDeleteAttendanceRecord?: (id: string) => void;
+  databaseMode?: 'direct' | 'cloud';
+  onToggleDatabaseMode?: () => void;
+  onExportBackup?: () => void;
+  onRestoreBackup?: (json: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -154,7 +159,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   locationConfig = DEFAULT_SCHOOL_LOCATION,
   onSaveLocationConfig,
   onRecordAttendance,
-  onDeleteAttendanceRecord
+  onDeleteAttendanceRecord,
+  databaseMode = 'direct',
+  onToggleDatabaseMode,
+  onExportBackup,
+  onRestoreBackup
 }) => {
   const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'location' | 'import' | 'branding' | 'reports'>('realtime');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -1059,18 +1068,82 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Top Banner */}
       <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-blue-600 text-white">
               Administrator Master
             </span>
             <span className="text-xs text-slate-300 font-mono">rizafani@gmail.com</span>
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1.5 ${
+              databaseMode === 'direct'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+            }`}>
+              <Database className="w-3 h-3 text-emerald-400" />
+              <span>{databaseMode === 'direct' ? 'Database Langsung (Lokal Aktif • Tanpa Cloud)' : 'Mode Cloud Firestore'}</span>
+            </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight mt-1">
             Panel Pengaturan Master SMAN 1 JULOK
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Kelola data guru, kelas, mata pelajaran, master jadwal, dan geofencing lokasi GPS sekolah.
+            Mode langsung aktif: Data tersimpan seketika di perangkat tanpa ketergantungan kuota cloud.
           </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          {onExportBackup && (
+            <button
+              type="button"
+              onClick={onExportBackup}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Unduh seluruh database dalam file JSON"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-400" />
+              <span>Backup DB (JSON)</span>
+            </button>
+          )}
+
+          {onRestoreBackup && (
+            <label className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs">
+              <Upload className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Pulihkan DB</span>
+              <input
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      const text = event.target?.result as string;
+                      if (text && confirm('PERINGATAN: Pulihkan data dari file cadangan ini? Data saat ini akan ditimpa dengan data dari file backup.')) {
+                        onRestoreBackup(text);
+                      }
+                    };
+                    reader.readAsText(file);
+                  }
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          )}
+
+          {onToggleDatabaseMode && (
+            <button
+              type="button"
+              onClick={onToggleDatabaseMode}
+              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                databaseMode === 'direct'
+                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40 hover:bg-emerald-900/50'
+                  : 'bg-blue-950/60 text-blue-300 border-blue-500/40 hover:bg-blue-900/50'
+              }`}
+              title="Ganti mode database antara Langsung Lokal dan Cloud Firestore"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{databaseMode === 'direct' ? 'Mode Langsung' : 'Mode Cloud'}</span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -49,6 +49,9 @@ export default function App() {
   const [locationConfig, setLocationConfig] = useState<SchoolLocationConfig>(() =>
     Storage.getLocationConfig()
   );
+  // Database Mode: 'direct' (Lokal Standalone) or 'cloud' (Google Cloud Firestore)
+  // Sesuai permintaan pengguna: mode langsung tanpa singkron cloud
+  const [databaseMode, setDatabaseMode] = useState<'direct' | 'cloud'>(() => Storage.getDatabaseMode());
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
   const [isManualSyncing, setIsManualSyncing] = useState<boolean>(false);
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
@@ -84,8 +87,13 @@ export default function App() {
     });
   }, [teachers]);
 
-  // REAL-TIME FIRESTORE DATABASE LISTENER ACROSS ALL DEVICES (Subscribes once on mount)
+  // REAL-TIME FIRESTORE DATABASE LISTENER (Only subscribes when databaseMode === 'cloud')
   useEffect(() => {
+    if (databaseMode !== 'cloud') {
+      setIsCloudSynced(false);
+      return;
+    }
+
     testFirestoreConnection();
 
     const unsubscribe = FirestoreService.subscribeToAll({
@@ -169,47 +177,60 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [databaseMode]);
 
-  // Manual trigger to force reload directly from Cloud Firestore
+  // Manual trigger to force reload directly from Local Storage or Cloud Firestore
   const handleManualSync = async () => {
     setIsManualSyncing(true);
     try {
-      const data = await FirestoreService.fetchAllDirect();
-      if (data.teachers.length > 0) {
-        setTeachers(data.teachers);
-        Storage.saveTeachers(data.teachers);
-      }
-      if (data.classes.length > 0) {
-        setClasses(data.classes);
-        Storage.saveClasses(data.classes);
-      }
-      if (data.subjects.length > 0) {
-        setSubjects(data.subjects);
-        Storage.saveSubjects(data.subjects);
-      }
-      if (data.timeSlots.length > 0) {
-        setTimeSlots(data.timeSlots);
-        Storage.saveTimeSlots(data.timeSlots);
-      }
-      if (data.schedules.length > 0) {
-        setSchedules(data.schedules);
-        Storage.saveSchedules(data.schedules);
-      }
-      setAttendanceRecords(data.attendance);
-      Storage.saveAttendance(data.attendance);
+      if (databaseMode === 'direct') {
+        // Direct Mode: Reload data from local storage database
+        setTeachers(Storage.getTeachers());
+        setClasses(Storage.getClasses());
+        setSubjects(Storage.getSubjects());
+        setTimeSlots(Storage.getTimeSlots());
+        setSchedules(Storage.getSchedules());
+        setAttendanceRecords(Storage.getAttendance());
+        setPiketAccounts(Storage.getPiketAccounts());
+        setLocationConfig(Storage.getLocationConfig());
+        setSyncToastMessage('Database Langsung Diperbarui: Seluruh data lokal termuat dengan sukses!');
+      } else {
+        const data = await FirestoreService.fetchAllDirect();
+        if (data.teachers.length > 0) {
+          setTeachers(data.teachers);
+          Storage.saveTeachers(data.teachers);
+        }
+        if (data.classes.length > 0) {
+          setClasses(data.classes);
+          Storage.saveClasses(data.classes);
+        }
+        if (data.subjects.length > 0) {
+          setSubjects(data.subjects);
+          Storage.saveSubjects(data.subjects);
+        }
+        if (data.timeSlots.length > 0) {
+          setTimeSlots(data.timeSlots);
+          Storage.saveTimeSlots(data.timeSlots);
+        }
+        if (data.schedules.length > 0) {
+          setSchedules(data.schedules);
+          Storage.saveSchedules(data.schedules);
+        }
+        setAttendanceRecords(data.attendance);
+        Storage.saveAttendance(data.attendance);
 
-      if (data.piketAccounts && data.piketAccounts.length > 0) {
-        const synced = syncPiketAccountsWithTeachers(
-          data.teachers.length > 0 ? data.teachers : teachers,
-          data.piketAccounts
-        );
-        setPiketAccounts(synced);
-        Storage.savePiketAccounts(synced);
-      }
+        if (data.piketAccounts && data.piketAccounts.length > 0) {
+          const synced = syncPiketAccountsWithTeachers(
+            data.teachers.length > 0 ? data.teachers : teachers,
+            data.piketAccounts
+          );
+          setPiketAccounts(synced);
+          Storage.savePiketAccounts(synced);
+        }
 
-      setIsCloudSynced(true);
-      setSyncToastMessage('Sinkronisasi Sukses: Seluruh data terbaru berhasil dimuat dari Google Cloud Firestore!');
+        setIsCloudSynced(true);
+        setSyncToastMessage('Sinkronisasi Sukses: Seluruh data terbaru berhasil dimuat dari Google Cloud Firestore!');
+      }
     } catch (err) {
       if (isQuotaExceededError(err)) {
         console.warn('Manual sync: Kuota harian Cloud Firestore sedang penuh. Data aplikasi aktif menggunakan penyimpanan lokal.');
@@ -224,21 +245,67 @@ export default function App() {
     }
   };
 
+  // Full Database Backup & Restore Handlers
+  const handleExportBackup = () => {
+    const json = Storage.exportFullDatabase();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    a.href = url;
+    a.download = `backup_database_sman1julok_${dateStr}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setSyncToastMessage('Cadangan seluruh database berhasil diunduh ke komputer!');
+    setTimeout(() => setSyncToastMessage(null), 4000);
+  };
+
+  const handleRestoreBackup = (jsonString: string) => {
+    const ok = Storage.importFullDatabase(jsonString);
+    if (ok) {
+      setTeachers(Storage.getTeachers());
+      setClasses(Storage.getClasses());
+      setSubjects(Storage.getSubjects());
+      setTimeSlots(Storage.getTimeSlots());
+      setSchedules(Storage.getSchedules());
+      setAttendanceRecords(Storage.getAttendance());
+      setPiketAccounts(Storage.getPiketAccounts());
+      setLocationConfig(Storage.getLocationConfig());
+      setLogos(Storage.getSchoolLogos());
+      setSyncToastMessage('Database berhasil dipulihkan dari file cadangan!');
+      setTimeout(() => setSyncToastMessage(null), 4000);
+    } else {
+      alert('Format file backup tidak valid. Pastikan file JSON yang dipilih sesuai.');
+    }
+  };
+
+  const handleToggleDatabaseMode = () => {
+    const nextMode = databaseMode === 'direct' ? 'cloud' : 'direct';
+    setDatabaseMode(nextMode);
+    Storage.saveDatabaseMode(nextMode);
+    setSyncToastMessage(
+      nextMode === 'direct'
+        ? 'Mode Database Langsung Aktif: Berjalan cepat tanpa singkron cloud.'
+        : 'Mode Cloud Aktif: Menghubungkan ke Google Cloud Firestore.'
+    );
+    setTimeout(() => setSyncToastMessage(null), 4000);
+  };
+
   // Save session changes
   useEffect(() => {
     Storage.saveSession(session);
   }, [session]);
 
-  // Attendance Handlers (Saves directly to Firebase Cloud Firestore)
+  // Attendance Handlers (Direct local database + optional cloud sync)
   const handleRecordAttendance = async (record: AttendanceRecord) => {
-    // Optimistic UI update
     setAttendanceRecords((prev) => {
       const updated = [record, ...prev.filter((r) => r.id !== record.id)];
       Storage.saveAttendance(updated);
       return updated;
     });
-    // Persist to Cloud Firestore so ALL devices receive it immediately!
-    await FirestoreService.saveAttendanceRecord(record);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.saveAttendanceRecord(record);
+    }
   };
 
   const handleDeleteRecord = async (id: string) => {
@@ -247,100 +314,181 @@ export default function App() {
       Storage.saveAttendance(updated);
       return updated;
     });
-    await FirestoreService.deleteAttendanceRecord(id);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.deleteAttendanceRecord(id);
+    }
   };
 
-  // Admin CRUD Handlers (Synchronized to Cloud Firestore)
+  // Admin CRUD Handlers (Direct local database + optional cloud sync)
   const handleSaveTeacher = async (teacher: Teacher) => {
     setTeachers((prev) => {
       const exists = prev.some((t) => t.id === teacher.id);
-      return exists ? prev.map((t) => (t.id === teacher.id ? teacher : t)) : [...prev, teacher];
+      const updated = exists ? prev.map((t) => (t.id === teacher.id ? teacher : t)) : [...prev, teacher];
+      Storage.saveTeachers(updated);
+      return updated;
     });
-    await FirestoreService.saveTeacher(teacher);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.saveTeacher(teacher);
+    }
   };
 
   const handleDeleteTeacher = async (id: string) => {
-    setTeachers((prev) => prev.filter((t) => t.id !== id));
+    setTeachers((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      Storage.saveTeachers(updated);
+      return updated;
+    });
     const toDeleteSchedules = schedules.filter((s) => s.teacherId === id);
-    setSchedules((prev) => prev.filter((s) => s.teacherId !== id));
-    await FirestoreService.deleteTeacher(id);
-    for (const sch of toDeleteSchedules) {
-      await FirestoreService.deleteSchedule(sch.id);
+    setSchedules((prev) => {
+      const updated = prev.filter((s) => s.teacherId !== id);
+      Storage.saveSchedules(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.deleteTeacher(id);
+      for (const sch of toDeleteSchedules) {
+        await FirestoreService.deleteSchedule(sch.id);
+      }
     }
   };
 
   const handleBulkSaveTeachers = async (newTeachers: Teacher[]) => {
-    setTeachers((prev) => [...prev, ...newTeachers]);
-    await FirestoreService.bulkSaveTeachers(newTeachers);
+    setTeachers((prev) => {
+      const updated = [...prev, ...newTeachers];
+      Storage.saveTeachers(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.bulkSaveTeachers(newTeachers);
+    }
   };
 
   const handleSaveClass = async (cls: ClassRoom) => {
     setClasses((prev) => {
       const exists = prev.some((c) => c.id === cls.id);
-      return exists ? prev.map((c) => (c.id === cls.id ? cls : c)) : [...prev, cls];
+      const updated = exists ? prev.map((c) => (c.id === cls.id ? cls : c)) : [...prev, cls];
+      Storage.saveClasses(updated);
+      return updated;
     });
-    await FirestoreService.saveClass(cls);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.saveClass(cls);
+    }
   };
 
   const handleDeleteClass = async (id: string) => {
-    setClasses((prev) => prev.filter((c) => c.id !== id));
+    setClasses((prev) => {
+      const updated = prev.filter((c) => c.id !== id);
+      Storage.saveClasses(updated);
+      return updated;
+    });
     const toDeleteSchedules = schedules.filter((s) => s.classRoomId === id);
-    setSchedules((prev) => prev.filter((s) => s.classRoomId !== id));
-    await FirestoreService.deleteClass(id);
-    for (const sch of toDeleteSchedules) {
-      await FirestoreService.deleteSchedule(sch.id);
+    setSchedules((prev) => {
+      const updated = prev.filter((s) => s.classRoomId !== id);
+      Storage.saveSchedules(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.deleteClass(id);
+      for (const sch of toDeleteSchedules) {
+        await FirestoreService.deleteSchedule(sch.id);
+      }
     }
   };
 
   const handleBulkSaveClasses = async (newClasses: ClassRoom[]) => {
-    setClasses((prev) => [...prev, ...newClasses]);
-    await FirestoreService.bulkSaveClasses(newClasses);
+    setClasses((prev) => {
+      const updated = [...prev, ...newClasses];
+      Storage.saveClasses(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.bulkSaveClasses(newClasses);
+    }
   };
 
   const handleSaveSubject = async (sub: Subject) => {
     setSubjects((prev) => {
       const exists = prev.some((s) => s.id === sub.id);
-      return exists ? prev.map((s) => (s.id === sub.id ? sub : s)) : [...prev, sub];
+      const updated = exists ? prev.map((s) => (s.id === sub.id ? sub : s)) : [...prev, sub];
+      Storage.saveSubjects(updated);
+      return updated;
     });
-    await FirestoreService.saveSubject(sub);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.saveSubject(sub);
+    }
   };
 
   const handleDeleteSubject = async (id: string) => {
-    setSubjects((prev) => prev.filter((s) => s.id !== id));
+    setSubjects((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      Storage.saveSubjects(updated);
+      return updated;
+    });
     const toDeleteSchedules = schedules.filter((s) => s.subjectId === id);
-    setSchedules((prev) => prev.filter((s) => s.subjectId !== id));
-    await FirestoreService.deleteSubject(id);
-    for (const sch of toDeleteSchedules) {
-      await FirestoreService.deleteSchedule(sch.id);
+    setSchedules((prev) => {
+      const updated = prev.filter((s) => s.subjectId !== id);
+      Storage.saveSchedules(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.deleteSubject(id);
+      for (const sch of toDeleteSchedules) {
+        await FirestoreService.deleteSchedule(sch.id);
+      }
     }
   };
 
   const handleBulkSaveSubjects = async (newSubjects: Subject[]) => {
-    setSubjects((prev) => [...prev, ...newSubjects]);
-    await FirestoreService.bulkSaveSubjects(newSubjects);
+    setSubjects((prev) => {
+      const updated = [...prev, ...newSubjects];
+      Storage.saveSubjects(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.bulkSaveSubjects(newSubjects);
+    }
   };
 
   const handleSaveSchedule = async (schedule: ScheduleItem) => {
     setSchedules((prev) => {
       const exists = prev.some((s) => s.id === schedule.id);
-      return exists ? prev.map((s) => (s.id === schedule.id ? schedule : s)) : [...prev, schedule];
+      const updated = exists ? prev.map((s) => (s.id === schedule.id ? schedule : s)) : [...prev, schedule];
+      Storage.saveSchedules(updated);
+      return updated;
     });
-    await FirestoreService.saveSchedule(schedule);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.saveSchedule(schedule);
+    }
   };
 
   const handleBulkSaveSchedules = async (newSchedules: ScheduleItem[]) => {
-    setSchedules((prev) => [...prev, ...newSchedules]);
-    await FirestoreService.bulkSaveSchedules(newSchedules);
+    setSchedules((prev) => {
+      const updated = [...prev, ...newSchedules];
+      Storage.saveSchedules(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.bulkSaveSchedules(newSchedules);
+    }
   };
 
   const handleReplaceAllSchedules = async (newSchedules: ScheduleItem[]) => {
     setSchedules(newSchedules);
-    await FirestoreService.replaceAllSchedules(newSchedules);
+    Storage.saveSchedules(newSchedules);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.replaceAllSchedules(newSchedules);
+    }
   };
 
   const handleDeleteSchedule = async (id: string) => {
-    setSchedules((prev) => prev.filter((s) => s.id !== id));
-    await FirestoreService.deleteSchedule(id);
+    setSchedules((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      Storage.saveSchedules(updated);
+      return updated;
+    });
+    if (databaseMode === 'cloud') {
+      await FirestoreService.deleteSchedule(id);
+    }
   };
 
   const handleSaveTimeSlot = async (slot: TimeSlot) => {
@@ -351,7 +499,9 @@ export default function App() {
       Storage.saveTimeSlots(updated);
       return updated;
     });
-    await FirestoreService.saveTimeSlot(slot);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.saveTimeSlot(slot);
+    }
   };
 
   const handleDeleteTimeSlot = async (id: string) => {
@@ -360,13 +510,17 @@ export default function App() {
       Storage.saveTimeSlots(updated);
       return updated;
     });
-    await FirestoreService.deleteTimeSlot(id);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.deleteTimeSlot(id);
+    }
   };
 
   const handleBulkSaveTimeSlots = async (newSlots: TimeSlot[]) => {
     setTimeSlots(newSlots);
     Storage.saveTimeSlots(newSlots);
-    await FirestoreService.bulkSaveTimeSlots(newSlots);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.bulkSaveTimeSlots(newSlots);
+    }
   };
 
   // Piket Account Handlers
@@ -377,13 +531,17 @@ export default function App() {
       Storage.savePiketAccounts(updated);
       return updated;
     });
-    await FirestoreService.savePiketAccount(account);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.savePiketAccount(account);
+    }
   };
 
   const handleBulkSavePiketAccounts = async (accounts: PiketAccount[]) => {
     setPiketAccounts(accounts);
     Storage.savePiketAccounts(accounts);
-    await FirestoreService.bulkSavePiketAccounts(accounts);
+    if (databaseMode === 'cloud') {
+      await FirestoreService.bulkSavePiketAccounts(accounts);
+    }
   };
 
   const handleLogin = (newSession: UserSession) => {
@@ -411,8 +569,10 @@ export default function App() {
   const handleSaveLocationConfig = async (newConfig: SchoolLocationConfig) => {
     setLocationConfig(newConfig);
     Storage.saveLocationConfig(newConfig);
-    await FirestoreService.saveLocationConfig(newConfig);
-    setSyncToastMessage('Pengaturan Lokasi GPS & Geofencing Berhasil Disimpan ke Cloud!');
+    if (databaseMode === 'cloud') {
+      await FirestoreService.saveLocationConfig(newConfig);
+    }
+    setSyncToastMessage('Pengaturan Lokasi GPS & Geofencing Berhasil Disimpan!');
     setTimeout(() => setSyncToastMessage(null), 3500);
   };
 
@@ -425,6 +585,9 @@ export default function App() {
         session={session}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
+        databaseMode={databaseMode}
+        onToggleDatabaseMode={handleToggleDatabaseMode}
+        onExportBackup={handleExportBackup}
         isCloudSynced={isCloudSynced}
         onManualSync={handleManualSync}
         isManualSyncing={isManualSyncing}
@@ -527,6 +690,10 @@ export default function App() {
             onSaveLocationConfig={handleSaveLocationConfig}
             onRecordAttendance={handleRecordAttendance}
             onDeleteAttendanceRecord={handleDeleteRecord}
+            databaseMode={databaseMode}
+            onToggleDatabaseMode={handleToggleDatabaseMode}
+            onExportBackup={handleExportBackup}
+            onRestoreBackup={handleRestoreBackup}
           />
         )}
       </main>
@@ -547,9 +714,11 @@ export default function App() {
             Pemerintah Aceh • Dinas Pendidikan Cabang Wilayah Kabupaten Aceh Timur
           </p>
           <div className="pt-2 flex flex-wrap items-center justify-center gap-3 text-[11px] text-slate-400">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-              Cloud Database: Firebase Firestore
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className={`inline-block w-2 h-2 rounded-full ${databaseMode === 'direct' ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+              {databaseMode === 'direct'
+                ? 'Database: Langsung (Penyimpanan Lokal Standalone • Tanpa Kuota Cloud)'
+                : 'Cloud Database: Firebase Firestore'}
             </span>
             <span>•</span>
             <span>Admin: rizafani@gmail.com</span>

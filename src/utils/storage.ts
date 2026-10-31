@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   LOGOS: 'sman1julok_logos_v2',
   ADMIN_PASSWORD: 'sman1julok_admin_password_v1',
   LOCATION_CONFIG: 'sman1julok_location_config_v1',
+  DATABASE_MODE: 'sman1julok_database_mode_v1',
 };
 
 /**
@@ -208,6 +209,50 @@ export const Storage = {
   },
   saveLocationConfig(config: SchoolLocationConfig): void {
     safeSet(STORAGE_KEYS.LOCATION_CONFIG, config);
+  },
+
+  getDatabaseMode(): 'direct' | 'cloud' {
+    return safeGet<'direct' | 'cloud'>(STORAGE_KEYS.DATABASE_MODE, 'direct');
+  },
+  saveDatabaseMode(mode: 'direct' | 'cloud'): void {
+    safeSet(STORAGE_KEYS.DATABASE_MODE, mode);
+  },
+
+  exportFullDatabase(): string {
+    const dump = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      school: 'SMA Negeri 1 Julok',
+      teachers: this.getTeachers(),
+      classes: this.getClasses(),
+      subjects: this.getSubjects(),
+      timeSlots: this.getTimeSlots(),
+      schedules: this.getSchedules(),
+      attendance: this.getAttendance(),
+      piketAccounts: this.getPiketAccounts(),
+      locationConfig: this.getLocationConfig(),
+      logos: this.getSchoolLogos(),
+    };
+    return JSON.stringify(dump, null, 2);
+  },
+
+  importFullDatabase(jsonString: string): boolean {
+    try {
+      const data = JSON.parse(jsonString);
+      if (Array.isArray(data.teachers)) this.saveTeachers(data.teachers);
+      if (Array.isArray(data.classes)) this.saveClasses(data.classes);
+      if (Array.isArray(data.subjects)) this.saveSubjects(data.subjects);
+      if (Array.isArray(data.timeSlots)) this.saveTimeSlots(data.timeSlots);
+      if (Array.isArray(data.schedules)) this.saveSchedules(data.schedules);
+      if (Array.isArray(data.attendance)) this.saveAttendance(data.attendance);
+      if (Array.isArray(data.piketAccounts)) this.savePiketAccounts(data.piketAccounts);
+      if (data.locationConfig) this.saveLocationConfig(data.locationConfig);
+      if (data.logos) this.saveSchoolLogos(data.logos);
+      return true;
+    } catch (e) {
+      console.error('Failed to import database:', e);
+      return false;
+    }
   },
 
   clearAll(): void {
