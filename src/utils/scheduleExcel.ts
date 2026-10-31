@@ -7,7 +7,7 @@ import {
   ScheduleItem,
   DayOfWeek
 } from '../types';
-import { INDONESIAN_DAYS } from '../data/initialData';
+import { INDONESIAN_DAYS, INITIAL_TIME_SLOTS } from '../data/initialData';
 
 export interface ParsedScheduleRow {
   rowIndex: number;
@@ -181,67 +181,159 @@ export function matchSubject(
 }
 
 /**
- * Match time slots. Handles single ("Jam 1", "1") or multiple ("Jam 1-2", "Jam 1, 2", "1 - 2")
+ * Helper to get slot number from slot label or ID
+ * e.g. label "Jam 1" -> 1, "Jam 10" -> 10, "Jam ke-3" -> 3
+ */
+function getSlotNumber(slot: TimeSlot, index: number): number {
+  const match = slot.label.match(/\d+/);
+  if (match) {
+    return parseInt(match[0], 10);
+  }
+  const idMatch = slot.id.match(/\d+/);
+  if (idMatch) {
+    return parseInt(idMatch[0], 10);
+  }
+  return index + 1;
+}
+
+/**
+ * Robustly matches time slots from any user input format.
+ * Handles:
+ * - Single: "Jam 1", "jam 1", "Jam 2", "1", "Jam ke-1", "JP 1"
+ * - Ranges: "Jam 3-4", "jam 3-4", "Jam 3 - 4", "3-4", "Jam 5-6", "jam 5-6", "5-6", "Jam 7-8", "Jam 9-10"
+ * - Lists/Conjunctions: "Jam 1, 2", "Jam 1,2,3", "Jam 3 & 4", "Jam 1 dan 2", "Jam 3 s/d 4", "Jam 5 s.d 6", "Jam 5 sampai 6"
+ * - Periods: "07:30 - 08:15", "07.30 - 09.00"
  */
 export function matchTimeSlots(
-  input: string,
+  input: string | number,
   timeSlots: TimeSlot[]
 ): { primarySlotId: string | null; allSlotIds: string[]; label: string | null } {
-  if (!input) return { primarySlotId: null, allSlotIds: [], label: null };
-  const trimmed = input.trim();
+  // Fallback to INITIAL_TIME_SLOTS if timeSlots array is empty or undefined
+  const activeSlots = timeSlots && timeSlots.length > 0 ? timeSlots : INITIAL_TIME_SLOTS;
 
-  // Extract all numbers: e.g. "Jam 1-2" -> [1, 2]
-  const numbers = trimmed.match(/\d+/g);
+  if (input === null || input === undefined || input === '') {
+    return { primarySlotId: null, allSlotIds: [], label: null };
+  }
 
-  if (numbers && numbers.length > 0) {
+  const str = String(input).trim();
+  if (!str) return { primarySlotId: null, allSlotIds: [], label: null };
+
+  // Map each slot with its numeric position and label
+  const slotMap = activeSlots.map((ts, idx) => ({
+    slot: ts,
+    num: getSlotNumber(ts, idx),
+    index: idx
+  }));
+
+  // Helper to find slot by exact number
+  const findByNumber = (n: number): TimeSlot | undefined => {
+    return slotMap.find((item) => item.num === n)?.slot;
+  };
+
+  // 1. Direct label or id exact match (case-insensitive)
+  const cleanInput = str.toLowerCase().replace(/\s+/g, ' ').trim();
+  const directMatch = activeSlots.find(
+    (ts) => ts.label.toLowerCase() === cleanInput || ts.id.toLowerCase() === cleanInput
+  );
+  if (directMatch) {
+    return {
+      primarySlotId: directMatch.id,
+      allSlotIds: [directMatch.id],
+      label: directMatch.label
+    };
+  }
+
+  // 2. Check for clock period/time matching first (e.g. "07:30 - 08:15", "07.30 - 09.00")
+  if (cleanInput.includes(':') || /^\d{1,2}[.:]\d{2}/.test(cleanInput)) {
+    const timeClean = cleanInput.replace(/\./g, ':');
+    const periodMatch = activeSlots.find(
+      (ts) => ts.period.toLowerCase().replace(/\s+/g, '') === timeClean.replace(/\s+/g, '') ||
+              ts.startTime.toLowerCase() === timeClean ||
+              timeClean.includes(ts.startTime)
+    );
+    if (periodMatch) {
+      return {
+        primarySlotId: periodMatch.id,
+        allSlotIds: [periodMatch.id],
+        label: periodMatch.label
+      };
+    }
+  }
+
+  // 3. Normalize common delimiters for ranges and lists
+  // e.g. "Jam 3 s/d 4", "Jam 3 s.d 4", "Jam 3 sampai 4", "Jam 3 & 4", "Jam 3 dan 4"
+  // Turn "s/d", "s.d", "sd", "sampai", "hingga", "to" into "-"
+  const normalizedStr = cleanInput
+    .replace(/\b(s\/d|s\.d|sd|sampai|hingga|to)\b/gi, '-')
+    .replace(/\b(dan|and|&)\b/gi, ',');
+
+  // 4. Extract range pattern: e.g. "Jam 3-4", "jam 3-4", "Jam 3 - 4", "3-4", "Jam 5-6", "5-6"
+  const rangeMatch = normalizedStr.match(/(\d+)\s*[-–—]\s*(\d+)/);
+  if (rangeMatch) {
+    const startNum = parseInt(rangeMatch[1], 10);
+    const endNum = parseInt(rangeMatch[2], 10);
+    const min = Math.min(startNum, endNum);
+    const max = Math.max(startNum, endNum);
+
     const matchedSlots: TimeSlot[] = [];
-
-    if (numbers.length === 1) {
-      const num = parseInt(numbers[0], 10);
-      const slot = timeSlots.find(
-        (ts) => ts.label.toLowerCase().includes(`jam ${num}`) || ts.label.toLowerCase() === `jam ${num}`
-      );
-      if (slot) matchedSlots.push(slot);
-    } else if (numbers.length >= 2) {
-      const startNum = parseInt(numbers[0], 10);
-      const endNum = parseInt(numbers[1], 10);
-      const minNum = Math.min(startNum, endNum);
-      const maxNum = Math.max(startNum, endNum);
-
-      for (let n = minNum; n <= maxNum; n++) {
-        const slot = timeSlots.find(
-          (ts) => ts.label.toLowerCase().includes(`jam ${n}`) || ts.label.toLowerCase() === `jam ${n}`
-        );
-        if (slot && !matchedSlots.some((s) => s.id === slot.id)) {
-          matchedSlots.push(slot);
-        }
+    for (let n = min; n <= max; n++) {
+      const s = findByNumber(n);
+      if (s && !matchedSlots.some((m) => m.id === s.id)) {
+        matchedSlots.push(s);
       }
     }
 
     if (matchedSlots.length > 0) {
       const allIds = matchedSlots.map((s) => s.id);
-      const label =
-        matchedSlots.length === 1
-          ? matchedSlots[0].label
-          : `${matchedSlots[0].label} - ${matchedSlots[matchedSlots.length - 1].label}`;
+      const firstSlot = matchedSlots[0];
+      const lastSlot = matchedSlots[matchedSlots.length - 1];
+      const label = matchedSlots.length === 1
+        ? firstSlot.label
+        : `${firstSlot.label} - ${lastSlot.label}`;
       return {
-        primarySlotId: matchedSlots[0].id,
+        primarySlotId: firstSlot.id,
         allSlotIds: allIds,
         label
       };
     }
   }
 
-  // Fallback: match by label text
-  const direct = timeSlots.find(
-    (ts) => ts.label.toLowerCase() === trimmed.toLowerCase()
-  );
-  if (direct) {
-    return {
-      primarySlotId: direct.id,
-      allSlotIds: [direct.id],
-      label: direct.label
-    };
+  // 4. Extract numbers: single ("Jam 1", "jam 2", "1", "Jam 10") or list ("1, 2", "1, 2, 3")
+  const allNumbers = normalizedStr.match(/\d+/g);
+  if (allNumbers && allNumbers.length > 0) {
+    const numValues = allNumbers.map((n) => parseInt(n, 10));
+
+    if (numValues.length === 1) {
+      // Single number: e.g. "Jam 1", "jam 2", "1", "Jam 10"
+      const targetNum = numValues[0];
+      const s = findByNumber(targetNum);
+      if (s) {
+        return {
+          primarySlotId: s.id,
+          allSlotIds: [s.id],
+          label: s.label
+        };
+      }
+    } else {
+      // Multiple individual numbers: e.g. "Jam 1, 2"
+      const matchedSlots: TimeSlot[] = [];
+      numValues.forEach((num) => {
+        const s = findByNumber(num);
+        if (s && !matchedSlots.some((m) => m.id === s.id)) {
+          matchedSlots.push(s);
+        }
+      });
+
+      if (matchedSlots.length > 0) {
+        const allIds = matchedSlots.map((s) => s.id);
+        const label = matchedSlots.map((s) => s.label).join(', ');
+        return {
+          primarySlotId: matchedSlots[0].id,
+          allSlotIds: allIds,
+          label
+        };
+      }
+    }
   }
 
   return { primarySlotId: null, allSlotIds: [], label: null };
@@ -300,7 +392,7 @@ export async function parseScheduleExcelFile(
       (c) => c.includes('mapel') || c.includes('mata pelajaran') || c.includes('pelajaran') || c.includes('subjek')
     );
     const timeIdx = rowStr.findIndex(
-      (c) => c.includes('jam') || c.includes('waktu') || c.includes('sesi') || c.includes('slot')
+      (c) => c.includes('jam') || c.includes('waktu') || c.includes('sesi') || c.includes('slot') || c.includes('jp') || c.includes('pukul') || c.includes('periode')
     );
 
     if (dayIdx >= 0 || teacherIdx >= 0 || classIdx >= 0 || subjectIdx >= 0) {
@@ -371,10 +463,11 @@ export async function parseScheduleExcelFile(
       validationErrors.push(`Mata Pelajaran "${rawSubject}" tidak ditemukan`);
     }
 
-    // Match TimeSlot
-    const matchedTime = matchTimeSlots(rawTimeSlot, timeSlots);
+    // Match TimeSlot (supports: Jam 1, Jam 2, Jam 3-4, Jam 5-6, 1, 3-4, etc.)
+    const effectiveSlots = timeSlots && timeSlots.length > 0 ? timeSlots : INITIAL_TIME_SLOTS;
+    const matchedTime = matchTimeSlots(rawTimeSlot, effectiveSlots);
     if (!matchedTime.primarySlotId) {
-      validationErrors.push(`Jam Pelajaran "${rawTimeSlot}" tidak sesuai format (contoh: Jam 1, Jam 1-2, atau 1)`);
+      validationErrors.push(`Jam Pelajaran "${rawTimeSlot}" tidak sesuai format (contoh: Jam 1, Jam 2, Jam 3-4, Jam 5-6, atau 1-2)`);
     }
 
     results.push({

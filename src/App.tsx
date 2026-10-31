@@ -291,6 +291,32 @@ export default function App() {
     setTimeout(() => setSyncToastMessage(null), 4000);
   };
 
+  const handleResetDefaultData = () => {
+    Storage.resetToDefaultData();
+    const newTeachers = Storage.getTeachers();
+    const newClasses = Storage.getClasses();
+    const newSubjects = Storage.getSubjects();
+    const newTimeSlots = Storage.getTimeSlots();
+    const newSchedules = Storage.getSchedules();
+
+    setTeachers(newTeachers);
+    setClasses(newClasses);
+    setSubjects(newSubjects);
+    setTimeSlots(newTimeSlots);
+    setSchedules(newSchedules);
+
+    if (databaseMode === 'cloud') {
+      FirestoreService.bulkSaveTeachers(newTeachers).catch(() => {});
+      FirestoreService.bulkSaveClasses(newClasses).catch(() => {});
+      FirestoreService.bulkSaveSubjects(newSubjects).catch(() => {});
+      FirestoreService.bulkSaveTimeSlots(newTimeSlots).catch(() => {});
+      FirestoreService.bulkSaveSchedules(newSchedules).catch(() => {});
+    }
+
+    setSyncToastMessage('Data Standar SMA Negeri 1 Julok Berhasil Dimuat (16 Guru, 12 Kelas, 16 Mapel, 10 Jam)!');
+    setTimeout(() => setSyncToastMessage(null), 4000);
+  };
+
   // Save session changes
   useEffect(() => {
     Storage.saveSession(session);
@@ -694,6 +720,7 @@ export default function App() {
             onToggleDatabaseMode={handleToggleDatabaseMode}
             onExportBackup={handleExportBackup}
             onRestoreBackup={handleRestoreBackup}
+            onResetDefaultData={handleResetDefaultData}
           />
         )}
       </main>

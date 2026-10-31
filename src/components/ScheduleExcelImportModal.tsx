@@ -211,7 +211,7 @@ export const ScheduleExcelImportModal: React.FC<ScheduleExcelImportModalProps> =
                 Template Resmi SMAN 1 JULOK
               </span>
               <p className="text-xs text-emerald-900 leading-relaxed max-w-xl">
-                Gunakan template resmi yang telah dilengkapi sheet referensi Nama Guru, NIP, Kelas, Mata Pelajaran, dan Jam Pelajaran agar data terbaca 100% akurat.
+                Gunakan template resmi atau file Excel Anda. Sistem otomatis membaca jam tunggal (<strong>Jam 1</strong>, <strong>Jam 2</strong>, dst) maupun jam rangkap/blok (<strong>Jam 3-4</strong>, <strong>Jam 5-6</strong>, <strong>3-4</strong>, dst).
               </p>
             </div>
 
