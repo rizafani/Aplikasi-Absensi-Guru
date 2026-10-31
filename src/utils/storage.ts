@@ -1,5 +1,5 @@
 import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, UserSession, SchoolLogos, PiketAccount, SchoolLocationConfig } from '../types';
-import { INITIAL_TEACHERS, INITIAL_CLASSES, INITIAL_SUBJECTS, INITIAL_TIME_SLOTS, INITIAL_SCHEDULES } from '../data/initialData';
+import { INITIAL_TEACHERS, INITIAL_CLASSES, INITIAL_SUBJECTS, INITIAL_TIME_SLOTS, INITIAL_SCHEDULES, INITIAL_ATTENDANCE } from '../data/initialData';
 import { DEFAULT_SCHOOL_LOCATION } from './geo';
 
 export const DEFAULT_LOGOS: SchoolLogos = {
@@ -22,34 +22,25 @@ const STORAGE_KEYS = {
 };
 
 /**
+/**
  * Sanitizes attendance records for localStorage storage.
- * Strips heavy Base64 photos and retains up to 100 recent entries.
- * Full photos remain stored securely in Google Cloud Firestore and in React component state.
+ * Retains up to 100 recent entries with their selfie photos.
  */
 function sanitizeAttendanceForStorage(records: AttendanceRecord[]): AttendanceRecord[] {
   if (!Array.isArray(records)) return [];
-  return records.slice(0, 100).map((record) => {
-    if (record.photoUrl && (record.photoUrl.startsWith('data:') || record.photoUrl.length > 200)) {
-      return { ...record, photoUrl: '' };
-    }
-    return record;
-  });
+  return records.slice(0, 100);
 }
 
 /**
- * Proactively clean up any bloated historical attendance entries in localStorage
- * that may have exceeded or approached the browser's ~5MB storage quota.
+ * Proactively clean up any corrupted historical attendance entries in localStorage
  */
 function initStorageMaintenance(): void {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
-    if (raw && (raw.length > 150000 || raw.includes('data:image/'))) {
+    if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          const cleaned = sanitizeAttendanceForStorage(parsed);
-          localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(cleaned));
-        } else {
+        if (!Array.isArray(parsed)) {
           localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
         }
       } catch {
@@ -173,7 +164,12 @@ export const Storage = {
   },
 
   getAttendance(): AttendanceRecord[] {
-    return safeGet<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
+    const list = safeGet<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
+    if (!list || list.length === 0) {
+      safeSet(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
+      return INITIAL_ATTENDANCE;
+    }
+    return list;
   },
   saveAttendance(data: AttendanceRecord[]): void {
     const sanitized = sanitizeAttendanceForStorage(data);

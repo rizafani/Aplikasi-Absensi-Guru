@@ -13,8 +13,125 @@ import {
   AlertTriangle,
   Search,
   School,
-  FileCheck
+  FileCheck,
+  Camera,
+  Maximize2,
+  MapPin,
+  X,
+  Sparkles,
+  ExternalLink
 } from 'lucide-react';
+
+export interface AttendanceStatusInfo {
+  label: 'Hadir' | 'Telat' | 'Absen' | 'Sakit' | 'Izin' | 'Dinas Luar';
+  jamText: string;
+  badgeClass: string;
+  dotClass: string;
+  isLate: boolean;
+  lateMinutes?: number;
+}
+
+export function parseAttendanceStatusAndJam(record: AttendanceRecord): AttendanceStatusInfo {
+  // 1. Format Jam Kehadiran
+  let jamText = '-';
+  if (record.timestamp) {
+    if (record.timestamp.includes('T')) {
+      const d = new Date(record.timestamp);
+      if (!isNaN(d.getTime())) {
+        jamText = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} WIB`;
+      }
+    } else {
+      const match = record.timestamp.match(/(\d{1,2})[.:](\d{2})/);
+      if (match) {
+        jamText = `${match[1].padStart(2, '0')}:${match[2]} WIB`;
+      } else {
+        jamText = `${record.timestamp} WIB`;
+      }
+    }
+  }
+
+  // 2. Tentukan status (Hadir, Telat, Absen, Sakit, Izin, Dinas Luar)
+  if (record.status === 'HADIR') {
+    let isLate = false;
+    let lateMinutes = 0;
+
+    // Check slot start time e.g. "07:30"
+    const slotMatch = record.timeSlotName?.match(/(\d{1,2})[.:](\d{2})/);
+    const checkinMatch = record.timestamp?.match(/(\d{1,2})[.:](\d{2})/);
+
+    if (slotMatch && checkinMatch) {
+      const slotMins = parseInt(slotMatch[1], 10) * 60 + parseInt(slotMatch[2], 10);
+      const checkMins = parseInt(checkinMatch[1], 10) * 60 + parseInt(checkinMatch[2], 10);
+      if (checkMins > slotMins + 5) {
+        isLate = true;
+        lateMinutes = checkMins - slotMins;
+      }
+    } else if (
+      record.notes?.toLowerCase().includes('telat') ||
+      record.notes?.toLowerCase().includes('terlambat') ||
+      record.topic?.toLowerCase().includes('telat')
+    ) {
+      isLate = true;
+    }
+
+    if (isLate) {
+      return {
+        label: 'Telat',
+        jamText,
+        badgeClass: 'bg-amber-100 text-amber-900 border border-amber-300 font-bold',
+        dotClass: 'bg-amber-500',
+        isLate: true,
+        lateMinutes: lateMinutes > 0 ? lateMinutes : undefined
+      };
+    }
+
+    return {
+      label: 'Hadir',
+      jamText,
+      badgeClass: 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold',
+      dotClass: 'bg-emerald-500',
+      isLate: false
+    };
+  }
+
+  if (record.status === 'ALPA') {
+    return {
+      label: 'Absen',
+      jamText: '-',
+      badgeClass: 'bg-rose-100 text-rose-900 border border-rose-300 font-bold',
+      dotClass: 'bg-rose-600',
+      isLate: false
+    };
+  }
+
+  if (record.status === 'SAKIT') {
+    return {
+      label: 'Sakit',
+      jamText: '-',
+      badgeClass: 'bg-red-50 text-red-800 border border-red-200 font-medium',
+      dotClass: 'bg-red-400',
+      isLate: false
+    };
+  }
+
+  if (record.status === 'IZIN') {
+    return {
+      label: 'Izin',
+      jamText: '-',
+      badgeClass: 'bg-orange-100 text-orange-900 border border-orange-300 font-medium',
+      dotClass: 'bg-orange-500',
+      isLate: false
+    };
+  }
+
+  return {
+    label: 'Dinas Luar',
+    jamText: jamText !== '-' ? jamText : '-',
+    badgeClass: 'bg-blue-100 text-blue-900 border border-blue-300 font-medium',
+    dotClass: 'bg-blue-500',
+    isLate: false
+  };
+}
 
 interface ReportsPageProps {
   teachers: Teacher[];
@@ -47,6 +164,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [selectedPhotoRecord, setSelectedPhotoRecord] = useState<AttendanceRecord | null>(null);
 
   // Filter records based on active criteria
   const filteredRecords = attendanceRecords.filter((rec) => {
@@ -59,9 +177,17 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       if (rec.date < startDate || rec.date > endDate) return false;
     }
 
-    // 2. By Status
+    // 2. By Status (Hadir, Telat, Absen, dll)
     if (statusFilter !== 'all') {
-      if (rec.status !== statusFilter) return false;
+      const info = parseAttendanceStatusAndJam(rec);
+      if (statusFilter === 'HADIR_TEPAT' && info.label !== 'Hadir') return false;
+      if (statusFilter === 'TELAT' && info.label !== 'Telat') return false;
+      if (statusFilter === 'ABSEN' && info.label !== 'Absen' && rec.status !== 'ALPA') return false;
+      if (statusFilter === 'HADIR' && rec.status !== 'HADIR') return false;
+      if (statusFilter === 'SAKIT' && rec.status !== 'SAKIT') return false;
+      if (statusFilter === 'IZIN' && rec.status !== 'IZIN') return false;
+      if (statusFilter === 'DINAS_LUAR' && rec.status !== 'DINAS_LUAR') return false;
+      if (statusFilter === 'ALPA' && rec.status !== 'ALPA') return false;
     }
 
     // 3. Search
@@ -80,12 +206,14 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
   // Calculate stats
   const total = filteredRecords.length;
-  const hadir = filteredRecords.filter((r) => r.status === 'HADIR').length;
+  const hadirTepat = filteredRecords.filter((r) => parseAttendanceStatusAndJam(r).label === 'Hadir').length;
+  const telat = filteredRecords.filter((r) => parseAttendanceStatusAndJam(r).label === 'Telat').length;
+  const totalHadir = hadirTepat + telat;
   const sakit = filteredRecords.filter((r) => r.status === 'SAKIT').length;
   const izin = filteredRecords.filter((r) => r.status === 'IZIN').length;
   const dinas = filteredRecords.filter((r) => r.status === 'DINAS_LUAR').length;
-  const alpa = filteredRecords.filter((r) => r.status === 'ALPA').length;
-  const attendanceRate = total > 0 ? ((hadir / total) * 100).toFixed(1) : '0';
+  const alpa = filteredRecords.filter((r) => parseAttendanceStatusAndJam(r).label === 'Absen' || r.status === 'ALPA').length;
+  const attendanceRate = total > 0 ? ((totalHadir / total) * 100).toFixed(1) : '0';
 
   const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
 
@@ -276,14 +404,16 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 focus:bg-white"
+              className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 focus:bg-white font-medium"
             >
-              <option value="all">Semua Status Kehadiran</option>
-              <option value="HADIR">Hadir Saja</option>
+              <option value="all">Semua Status (Hadir, Telat, Absen)</option>
+              <option value="HADIR_TEPAT">Hadir Tepat Waktu</option>
+              <option value="TELAT">Telat / Terlambat</option>
+              <option value="ABSEN">Absen / Tidak Hadir</option>
+              <option value="HADIR">Semua Hadir (Tepat &amp; Telat)</option>
               <option value="SAKIT">Sakit</option>
               <option value="IZIN">Izin</option>
               <option value="DINAS_LUAR">Dinas Luar</option>
-              <option value="ALPA">Alpa / Tanpa Keterangan</option>
             </select>
           </div>
 
@@ -307,29 +437,29 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
       {/* Summary KPI Cards for the filtered report */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 text-center">
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 text-center shadow-2xs">
           <span className="text-[11px] font-semibold text-slate-500 block">Total Data</span>
           <span className="text-xl font-black text-slate-900 mt-1 block">{total}</span>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-emerald-200 text-center bg-emerald-50/20">
-          <span className="text-[11px] font-semibold text-emerald-800 block">Hadir</span>
-          <span className="text-xl font-black text-emerald-700 mt-1 block">{hadir}</span>
+        <div className="bg-white p-3.5 rounded-xl border border-emerald-200 text-center bg-emerald-50/30 shadow-2xs">
+          <span className="text-[11px] font-bold text-emerald-800 block">Hadir Tepat</span>
+          <span className="text-xl font-black text-emerald-700 mt-1 block">{hadirTepat}</span>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-rose-200 text-center bg-rose-50/20">
-          <span className="text-[11px] font-semibold text-rose-800 block">Sakit</span>
-          <span className="text-xl font-black text-rose-700 mt-1 block">{sakit}</span>
+        <div className="bg-white p-3.5 rounded-xl border border-amber-200 text-center bg-amber-50/30 shadow-2xs">
+          <span className="text-[11px] font-bold text-amber-800 block">Telat</span>
+          <span className="text-xl font-black text-amber-600 mt-1 block">{telat}</span>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-orange-200 text-center bg-orange-50/20">
-          <span className="text-[11px] font-semibold text-orange-800 block">Izin</span>
-          <span className="text-xl font-black text-orange-700 mt-1 block">{izin}</span>
+        <div className="bg-white p-3.5 rounded-xl border border-rose-200 text-center bg-rose-50/30 shadow-2xs">
+          <span className="text-[11px] font-bold text-rose-800 block">Absen (Alpa)</span>
+          <span className="text-xl font-black text-rose-700 mt-1 block">{alpa}</span>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-blue-200 text-center bg-blue-50/20">
-          <span className="text-[11px] font-semibold text-blue-800 block">Dinas Luar</span>
-          <span className="text-xl font-black text-blue-700 mt-1 block">{dinas}</span>
+        <div className="bg-white p-3.5 rounded-xl border border-orange-200 text-center bg-orange-50/30 shadow-2xs">
+          <span className="text-[11px] font-semibold text-orange-800 block">Sakit &amp; Izin</span>
+          <span className="text-xl font-black text-orange-700 mt-1 block">{sakit + izin}</span>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 text-center bg-indigo-50/30">
-          <span className="text-[11px] font-semibold text-indigo-900 block">% Kehadiran</span>
-          <span className="text-xl font-black text-indigo-700 mt-1 block">{attendanceRate}%</span>
+        <div className="bg-white p-3.5 rounded-xl border border-blue-200 text-center bg-blue-50/30 shadow-2xs">
+          <span className="text-[11px] font-semibold text-blue-900 block">% Kehadiran</span>
+          <span className="text-xl font-black text-blue-700 mt-1 block">{attendanceRate}%</span>
         </div>
       </div>
 
@@ -396,8 +526,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 <th className="p-2.5">Kelas</th>
                 <th className="p-2.5">Mata Pelajaran</th>
                 <th className="p-2.5">Jam Pelajaran</th>
-                <th className="p-2.5 text-center">Status</th>
-                <th className="p-2.5">Materi / Keterangan</th>
+                <th className="p-2.5 text-center">Status &amp; Jam Presensi</th>
+                <th className="p-2.5 text-center">Foto Selfie Presensi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -408,50 +538,91 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredRecords.map((r, i) => (
-                  <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="p-2.5 text-center text-slate-400 font-mono">{i + 1}</td>
-                    <td className="p-2.5 font-medium text-slate-700 whitespace-nowrap">
-                      {r.date}
-                    </td>
-                    <td className="p-2.5 font-bold text-slate-900 whitespace-nowrap">
-                      {r.teacherName}
-                    </td>
-                    <td className="p-2.5 font-mono text-slate-500 whitespace-nowrap">{r.nip}</td>
-                    <td className="p-2.5 font-bold text-blue-800">{r.classRoomName}</td>
-                    <td className="p-2.5 text-slate-800">{r.subjectName}</td>
-                    <td className="p-2.5 text-slate-600 font-mono whitespace-nowrap">
-                      {r.timeSlotName.split('(')[0]}
-                    </td>
-                    <td className="p-2.5 text-center">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                          r.status === 'HADIR'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : r.status === 'SAKIT'
-                            ? 'bg-rose-100 text-rose-800'
-                            : r.status === 'IZIN'
-                            ? 'bg-orange-100 text-orange-800'
-                            : r.status === 'DINAS_LUAR'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {r.status}
-                      </span>
-                      {r.locationStatus && (
-                        <span className={`block text-[9px] font-medium mt-0.5 ${
-                          r.locationStatus === 'VALID' ? 'text-emerald-700' : 'text-rose-700'
-                        }`}>
-                          {r.locationStatus === 'VALID' ? `GPS Sah (~${r.distanceMeters ?? 0}m)` : `Luar (~${r.distanceMeters ?? 0}m)`}
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-2.5 text-slate-600 max-w-xs truncate">
-                      {r.topic || r.piketNotes || r.notes || (r.recordedBy === 'MANDIRI' ? 'Selfie Hadir' : '-')}
-                    </td>
-                  </tr>
-                ))
+                filteredRecords.map((r, i) => {
+                  const statusInfo = parseAttendanceStatusAndJam(r);
+                  return (
+                    <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="p-2.5 text-center text-slate-400 font-mono">{i + 1}</td>
+                      <td className="p-2.5 font-medium text-slate-700 whitespace-nowrap">
+                        {r.date}
+                      </td>
+                      <td className="p-2.5 font-bold text-slate-900 whitespace-nowrap">
+                        {r.teacherName}
+                      </td>
+                      <td className="p-2.5 font-mono text-slate-500 whitespace-nowrap">{r.nip || '-'}</td>
+                      <td className="p-2.5 font-bold text-blue-800">{r.classRoomName}</td>
+                      <td className="p-2.5 text-slate-800">{r.subjectName}</td>
+                      <td className="p-2.5 text-slate-600 font-mono whitespace-nowrap">
+                        {r.timeSlotName.split('(')[0]}
+                      </td>
+
+                      {/* Status : Tampilkan Jam saat absensi dan status (Hadir/telat/absen) */}
+                      <td className="p-2.5 text-center whitespace-nowrap">
+                        <div className="flex flex-col items-center gap-1">
+                          {/* Jam saat absensi */}
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
+                            <Clock className="w-3 h-3 text-blue-600 shrink-0" />
+                            <span>{statusInfo.jamText}</span>
+                          </span>
+
+                          {/* Status Badge (Hadir / Telat / Absen) */}
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] ${statusInfo.badgeClass} shadow-2xs`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dotClass}`}></span>
+                            <span>{statusInfo.label}</span>
+                            {statusInfo.lateMinutes && (
+                              <span className="text-[9px] opacity-85">(+{statusInfo.lateMinutes}m)</span>
+                            )}
+                          </span>
+
+                          {/* GPS Validation status if available */}
+                          {r.locationStatus && (
+                            <span className={`block text-[9px] font-medium ${
+                              r.locationStatus === 'VALID' ? 'text-emerald-700' : 'text-rose-700'
+                            }`}>
+                              {r.locationStatus === 'VALID' ? `GPS Sah (~${r.distanceMeters ?? 0}m)` : `Luar (~${r.distanceMeters ?? 0}m)`}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Materi Dan Keterangan diganti dengan foto saat selfie */}
+                      <td className="p-2.5 text-center">
+                        {r.photoUrl ? (
+                          <div className="flex flex-col items-center gap-1 group">
+                            <div
+                              onClick={() => setSelectedPhotoRecord(r)}
+                              className="relative w-14 h-14 rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-500 shadow-2xs cursor-pointer transition-all hover:scale-105 bg-slate-900 flex items-center justify-center shrink-0"
+                              title="Klik untuk memperbesar foto selfie kehadiran"
+                            >
+                              <img
+                                src={r.photoUrl}
+                                alt={`Foto selfie ${r.teacherName}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                <Maximize2 className="w-4 h-4 drop-shadow-md" />
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPhotoRecord(r)}
+                              className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span>Lihat Foto</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-1 text-slate-400 py-1">
+                            <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
+                              <Camera className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-medium">Tanpa Foto</span>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -478,6 +649,109 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal Pratinjau Foto Selfie Ukuran Besar */}
+      {selectedPhotoRecord && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="bg-gradient-to-r from-blue-900 to-indigo-900 p-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                  <Camera className="w-4 h-4 text-blue-200" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">Foto Bukti Selfie Presensi Guru</h3>
+                  <p className="text-[11px] text-blue-200">SMA Negeri 1 Julok • Pemerintah Aceh</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPhotoRecord(null)}
+                className="p-1.5 hover:bg-white/20 rounded-xl transition-colors cursor-pointer text-white/90 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {/* Full Image Preview */}
+              <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center shadow-inner">
+                <img
+                  src={selectedPhotoRecord.photoUrl}
+                  alt={`Selfie ${selectedPhotoRecord.teacherName}`}
+                  className="w-full h-auto max-h-80 object-contain mx-auto"
+                />
+              </div>
+
+              {/* Detail Ringkas */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2.5 text-xs">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
+                  <span className="text-slate-500 font-medium">Nama Guru:</span>
+                  <span className="font-bold text-slate-900 text-sm">{selectedPhotoRecord.teacherName}</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
+                  <span className="text-slate-500 font-medium">NIP:</span>
+                  <span className="font-mono text-slate-700">{selectedPhotoRecord.nip || '-'}</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
+                  <span className="text-slate-500 font-medium">Tanggal &amp; Waktu:</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedPhotoRecord.date} • {parseAttendanceStatusAndJam(selectedPhotoRecord).jamText}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
+                  <span className="text-slate-500 font-medium">Status Kehadiran:</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] ${parseAttendanceStatusAndJam(selectedPhotoRecord).badgeClass}`}>
+                      {parseAttendanceStatusAndJam(selectedPhotoRecord).label}
+                    </span>
+                    {parseAttendanceStatusAndJam(selectedPhotoRecord).lateMinutes && (
+                      <span className="text-[10px] text-amber-700 font-bold">
+                        (Terlambat {parseAttendanceStatusAndJam(selectedPhotoRecord).lateMinutes} menit)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
+                  <span className="text-slate-500 font-medium">Kelas &amp; Mata Pelajaran:</span>
+                  <span className="font-semibold text-blue-900">
+                    {selectedPhotoRecord.classRoomName} — {selectedPhotoRecord.subjectName}
+                  </span>
+                </div>
+                {selectedPhotoRecord.locationAddress && (
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-slate-500 font-medium flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-600" /> Lokasi GPS:
+                    </span>
+                    <span className="text-emerald-700 font-bold">{selectedPhotoRecord.locationAddress}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                {selectedPhotoRecord.photoUrl && (
+                  <a
+                    href={selectedPhotoRecord.photoUrl}
+                    download={`selfie_${selectedPhotoRecord.teacherName.replace(/\s+/g, '_')}_${selectedPhotoRecord.date}.jpg`}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh Foto Selfie</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedPhotoRecord(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

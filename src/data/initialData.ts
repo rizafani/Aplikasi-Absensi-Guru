@@ -107,7 +107,146 @@ export const INITIAL_SCHEDULES: ScheduleItem[] = [
   { id: 'sch-27', teacherId: 'guru-14', day: 'Sabtu', classRoomId: 'kls-xi-f2', subjectId: 'mapel-inf', timeSlotId: 'ts-4', timeSlotIds: ['ts-4', 'ts-5'], room: 'Lab Komputer', notes: 'Jaringan Komputer' },
 ];
 
-export const INITIAL_ATTENDANCE: AttendanceRecord[] = [];
+function makeSampleSelfieDataUrl(teacherName: string, timeStr: string, statusBadge: string, bg = '#1e3a8a') {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="225" viewBox="0 0 300 225">
+    <rect width="300" height="225" fill="${bg}"/>
+    <rect x="15" y="15" width="270" height="150" rx="8" fill="#ffffff" fill-opacity="0.12"/>
+    <circle cx="150" cy="80" r="34" fill="#ffffff" fill-opacity="0.9"/>
+    <circle cx="150" cy="70" r="16" fill="#1e293b"/>
+    <path d="M 124 105 C 124 92, 176 92, 176 105 Z" fill="#1e293b"/>
+    <rect x="0" y="175" width="300" height="50" fill="rgba(15,23,42,0.92)"/>
+    <text x="12" y="195" font-family="sans-serif" font-size="10" fill="#ffffff" font-weight="bold">SMAN 1 JULOK • ${timeStr}</text>
+    <text x="12" y="211" font-family="sans-serif" font-size="9" fill="#93c5fd">${teacherName} | ${statusBadge}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+export const INITIAL_ATTENDANCE: AttendanceRecord[] = [
+  {
+    id: 'att-1',
+    teacherId: 'guru-1',
+    teacherName: 'Riza Fani, S.Pd., M.Pd.',
+    nip: '198205102008011004',
+    date: new Date().toISOString().split('T')[0],
+    dayName: 'Senin',
+    classRoomName: 'XII-MIPA 1',
+    subjectName: 'Fisika',
+    timeSlotName: 'Jam 1 (07:30 - 08:15)',
+    status: 'HADIR',
+    timestamp: '07:22:15',
+    topic: 'Fisika Inti dan Radioaktivitas',
+    notes: 'Hadir tepat waktu sebelum jam pelajaran dimulai',
+    recordedBy: 'MANDIRI',
+    latitude: 4.981324,
+    longitude: 97.712415,
+    distanceMeters: 22,
+    locationStatus: 'VALID',
+    locationAddress: 'SMAN 1 Julok (~22m)',
+    photoUrl: makeSampleSelfieDataUrl('Riza Fani, S.Pd., M.Pd.', '07:22 WIB', 'Hadir Tepat Waktu', '#1e3a8a')
+  },
+  {
+    id: 'att-2',
+    teacherId: 'guru-2',
+    teacherName: 'Drs. Muhammad Nasir',
+    nip: '197508152002121002',
+    date: new Date().toISOString().split('T')[0],
+    dayName: 'Senin',
+    classRoomName: 'X-1',
+    subjectName: 'Matematika',
+    timeSlotName: 'Jam 1 (07:30 - 08:15)',
+    status: 'HADIR',
+    timestamp: '07:44:30',
+    topic: 'Persamaan Linear Satu Variabel',
+    notes: 'Telat masuk kelas karena ada kendala lalu lintas',
+    recordedBy: 'MANDIRI',
+    latitude: 4.981410,
+    longitude: 97.712530,
+    distanceMeters: 45,
+    locationStatus: 'VALID',
+    locationAddress: 'SMAN 1 Julok (~45m)',
+    photoUrl: makeSampleSelfieDataUrl('Drs. Muhammad Nasir', '07:44 WIB', 'Telat Masuk Kelas', '#b45309')
+  },
+  {
+    id: 'att-3',
+    teacherId: 'guru-3',
+    teacherName: 'Cut Nurul Aini, S.Pd.',
+    nip: '198403122009042003',
+    date: new Date().toISOString().split('T')[0],
+    dayName: 'Senin',
+    classRoomName: 'XI-F1',
+    subjectName: 'Bahasa Indonesia',
+    timeSlotName: 'Jam 4 (10:15 - 11:00)',
+    status: 'HADIR',
+    timestamp: '10:05:40',
+    topic: 'Menganalisis Teks Eksplanasi',
+    notes: 'Hadir tepat waktu di kelas',
+    recordedBy: 'MANDIRI',
+    latitude: 4.981290,
+    longitude: 97.712390,
+    distanceMeters: 18,
+    locationStatus: 'VALID',
+    locationAddress: 'SMAN 1 Julok (~18m)',
+    photoUrl: makeSampleSelfieDataUrl('Cut Nurul Aini, S.Pd.', '10:05 WIB', 'Hadir Tepat Waktu', '#047857')
+  },
+  {
+    id: 'att-4',
+    teacherId: 'guru-4',
+    teacherName: 'Teuku Zulkifli, S.Pd.',
+    nip: '198711202011011005',
+    date: new Date().toISOString().split('T')[0],
+    dayName: 'Senin',
+    classRoomName: 'X-2',
+    subjectName: 'Bahasa Inggris',
+    timeSlotName: 'Jam 4 (10:15 - 11:00)',
+    status: 'HADIR',
+    timestamp: '10:28:12',
+    topic: 'Analytical Exposition Text',
+    notes: 'Telat hadir 13 menit',
+    recordedBy: 'MANDIRI',
+    latitude: 4.981350,
+    longitude: 97.712480,
+    distanceMeters: 38,
+    locationStatus: 'VALID',
+    locationAddress: 'SMAN 1 Julok (~38m)',
+    photoUrl: makeSampleSelfieDataUrl('Teuku Zulkifli, S.Pd.', '10:28 WIB', 'Telat Masuk Kelas', '#b45309')
+  },
+  {
+    id: 'att-5',
+    teacherId: 'guru-5',
+    teacherName: 'Nurlina, S.Si., M.Pd.',
+    nip: '198307042006042008',
+    date: new Date().toISOString().split('T')[0],
+    dayName: 'Senin',
+    classRoomName: 'XII-MIPA 2',
+    subjectName: 'Biologi',
+    timeSlotName: 'Jam 7 (13:30 - 14:15)',
+    status: 'SAKIT',
+    timestamp: '',
+    topic: '-',
+    notes: 'Surat keterangan dokter terlampir di piket',
+    recordedBy: 'GURU_PIKET',
+    locationStatus: 'UNVERIFIED',
+    photoUrl: ''
+  },
+  {
+    id: 'att-6',
+    teacherId: 'guru-6',
+    teacherName: 'Faisal, S.Pd.',
+    nip: '198909182014031002',
+    date: new Date().toISOString().split('T')[0],
+    dayName: 'Senin',
+    classRoomName: 'XI-F1',
+    subjectName: 'Kimia',
+    timeSlotName: 'Jam 1 (07:30 - 08:15)',
+    status: 'ALPA',
+    timestamp: '',
+    topic: '-',
+    notes: 'Tidak hadir tanpa pemberitahuan',
+    recordedBy: 'GURU_PIKET',
+    locationStatus: 'UNVERIFIED',
+    photoUrl: ''
+  }
+];
 
 export const INDONESIAN_DAYS: DayOfWeek[] = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 

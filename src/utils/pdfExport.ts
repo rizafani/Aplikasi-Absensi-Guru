@@ -120,63 +120,123 @@ export async function generateAttendancePDF(
     62
   );
 
+  // Format status and jam for each record
+  function formatPdfStatus(rec: AttendanceRecord): { jamAndStatus: string; isLate: boolean; isAbsent: boolean } {
+    let jamText = '';
+    if (rec.timestamp) {
+      const match = rec.timestamp.match(/(\d{1,2})[.:](\d{2})/);
+      if (match) jamText = `${match[1].padStart(2, '0')}:${match[2]}`;
+      else jamText = rec.timestamp;
+    }
+
+    let statusLabel = 'Hadir';
+    let isLate = false;
+    let isAbsent = false;
+
+    if (rec.status === 'HADIR') {
+      const slotMatch = rec.timeSlotName?.match(/(\d{1,2})[.:](\d{2})/);
+      const checkinMatch = rec.timestamp?.match(/(\d{1,2})[.:](\d{2})/);
+      if (slotMatch && checkinMatch) {
+        const slotMins = parseInt(slotMatch[1], 10) * 60 + parseInt(slotMatch[2], 10);
+        const checkMins = parseInt(checkinMatch[1], 10) * 60 + parseInt(checkinMatch[2], 10);
+        if (checkMins > slotMins + 5) {
+          isLate = true;
+          statusLabel = `Telat (+${checkMins - slotMins}m)`;
+        } else {
+          statusLabel = 'Hadir';
+        }
+      } else if (rec.notes?.toLowerCase().includes('telat')) {
+        isLate = true;
+        statusLabel = 'Telat';
+      }
+    } else if (rec.status === 'ALPA') {
+      isAbsent = true;
+      statusLabel = 'Absen';
+    } else if (rec.status === 'SAKIT') {
+      isAbsent = true;
+      statusLabel = 'Sakit';
+    } else if (rec.status === 'IZIN') {
+      isAbsent = true;
+      statusLabel = 'Izin';
+    } else {
+      statusLabel = 'Dinas Luar';
+    }
+
+    const jamAndStatus = jamText ? `${jamText} WIB\n(${statusLabel})` : statusLabel;
+    return { jamAndStatus, isLate, isAbsent };
+  }
+
   // Table Data
-  const tableRows = records.map((rec, index) => [
-    (index + 1).toString(),
-    rec.date,
-    rec.timeSlotName.split(' ')[0] + ' ' + (rec.timeSlotName.match(/\((.*?)\)/)?.[1] || rec.timestamp || ''),
-    rec.teacherName,
-    rec.nip || '-',
-    rec.classRoomName,
-    rec.subjectName,
-    rec.status,
-    rec.topic || rec.piketNotes || rec.notes || (rec.recordedBy === 'MANDIRI' ? 'Selfie Valid' : 'Divalidasi Piket')
-  ]);
+  const tableRows = records.map((rec, index) => {
+    const statusData = formatPdfStatus(rec);
+    const photoText = rec.photoUrl
+      ? (rec.locationStatus === 'VALID' ? 'Foto Selfie (GPS Sah)' : 'Foto Selfie Valid')
+      : 'Tanpa Foto';
+
+    return [
+      (index + 1).toString(),
+      rec.date,
+      rec.timeSlotName.split('(')[0].trim(),
+      rec.teacherName,
+      rec.nip || '-',
+      rec.classRoomName,
+      rec.subjectName,
+      statusData.jamAndStatus,
+      photoText
+    ];
+  });
 
   autoTable(doc, {
     startY: 69,
-    head: [['No', 'Tanggal', 'Jam / Waktu', 'Nama Guru', 'NIP', 'Kelas', 'Mata Pelajaran', 'Status', 'Materi / Keterangan']],
+    head: [['No', 'Tanggal', 'Jam Pelajaran', 'Nama Guru', 'NIP', 'Kelas', 'Mata Pelajaran', 'Jam Absen & Status', 'Foto Selfie Presensi']],
     body: tableRows,
     theme: 'grid',
     headStyles: {
       fillColor: [26, 86, 160], // Navy blue SMA
       textColor: [255, 255, 255],
-      fontSize: 8.5,
+      fontSize: 8,
       halign: 'center',
       valign: 'middle'
     },
     styles: {
-      fontSize: 8,
+      fontSize: 7.5,
       cellPadding: 2,
       valign: 'middle',
       overflow: 'linebreak'
     },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 10 },
-      1: { halign: 'center', cellWidth: 22 },
-      2: { halign: 'center', cellWidth: 26 },
-      3: { cellWidth: 46, fontStyle: 'bold' },
-      4: { halign: 'center', cellWidth: 32 },
-      5: { halign: 'center', cellWidth: 18 },
+      0: { halign: 'center', cellWidth: 8 },
+      1: { halign: 'center', cellWidth: 20 },
+      2: { halign: 'center', cellWidth: 22 },
+      3: { cellWidth: 44, fontStyle: 'bold' },
+      4: { halign: 'center', cellWidth: 30 },
+      5: { halign: 'center', cellWidth: 16 },
       6: { cellWidth: 36 },
-      7: { halign: 'center', cellWidth: 22 },
-      8: { cellWidth: 'auto' }
+      7: { halign: 'center', cellWidth: 28, fontStyle: 'bold' },
+      8: { halign: 'center', cellWidth: 32 }
     },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 7) {
-        const val = data.cell.raw as string;
-        if (val === 'HADIR') {
+        const val = String(data.cell.raw || '');
+        if (val.includes('Hadir') && !val.includes('Telat')) {
           data.cell.styles.textColor = [22, 101, 52]; // Dark green
-          data.cell.styles.fontStyle = 'bold';
-        } else if (val === 'SAKIT' || val === 'IZIN') {
+        } else if (val.includes('Telat')) {
           data.cell.styles.textColor = [180, 83, 9]; // Amber
-          data.cell.styles.fontStyle = 'bold';
-        } else if (val === 'DINAS_LUAR') {
-          data.cell.styles.textColor = [29, 78, 216]; // Blue
-          data.cell.styles.fontStyle = 'bold';
-        } else if (val === 'ALPA') {
+        } else if (val.includes('Absen') || val.includes('Alpa')) {
           data.cell.styles.textColor = [185, 28, 28]; // Red
+        } else if (val.includes('Sakit') || val.includes('Izin')) {
+          data.cell.styles.textColor = [217, 119, 6]; // Amber
+        } else if (val.includes('Dinas')) {
+          data.cell.styles.textColor = [29, 78, 216]; // Blue
+        }
+      }
+      if (data.section === 'body' && data.column.index === 8) {
+        const val = String(data.cell.raw || '');
+        if (val.includes('Foto Selfie')) {
+          data.cell.styles.textColor = [30, 64, 175]; // Blue
           data.cell.styles.fontStyle = 'bold';
+        } else {
+          data.cell.styles.textColor = [148, 163, 184]; // Gray
         }
       }
     }
