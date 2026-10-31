@@ -7,7 +7,8 @@ import {
   getDocs,
   writeBatch
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db, handleFirestoreError, OperationType, isQuotaExceededError } from '../firebase';
+import { Storage } from '../utils/storage';
 import {
   Teacher,
   ClassRoom,
@@ -18,6 +19,14 @@ import {
   PiketAccount,
   SchoolLocationConfig
 } from '../types';
+
+function handleWriteError(err: unknown, operation: OperationType, path: string, entityLabel: string): void {
+  if (isQuotaExceededError(err)) {
+    console.warn(`[Firestore] Kuota harian Firestore gratis tercapai saat operasi ${operation} pada ${entityLabel} (${path}). Perubahan tetap aman tersimpan di penyimpanan lokal.`);
+    return;
+  }
+  handleFirestoreError(err, operation, path);
+}
 
 const COLLECTIONS = {
   TEACHERS: 'teachers',
@@ -76,6 +85,18 @@ export const FirestoreService = {
       }
     };
 
+    const handleListenerError = (entityName: string, error: unknown, fallbackStatusMsg: string) => {
+      if (isQuotaExceededError(error)) {
+        console.warn(
+          `[Firestore] Kuota harian Firestore gratis tercapai saat sinkronisasi ${entityName}. Menggunakan data cache lokal perangkat (LocalStorage & IndexedDB).`
+        );
+        callbacks.onSyncStatus?.(false, 'Mode Offline (Kuota Cloud Harian Tercapai - Data Tersimpan Lokal)');
+      } else {
+        console.error(`Error listening to ${entityName}:`, error);
+        callbacks.onSyncStatus?.(false, fallbackStatusMsg);
+      }
+    };
+
     // 1. Teachers
     const unsubTeachers = onSnapshot(
       collection(db, COLLECTIONS.TEACHERS),
@@ -87,8 +108,7 @@ export const FirestoreService = {
         checkInitialSync();
       },
       (error) => {
-        console.error('Error listening to teachers:', error);
-        callbacks.onSyncStatus?.(false, 'Gagal memuat data guru dari Cloud');
+        handleListenerError('teachers', error, 'Gagal memuat data guru dari Cloud');
       }
     );
 
@@ -103,8 +123,7 @@ export const FirestoreService = {
         checkInitialSync();
       },
       (error) => {
-        console.error('Error listening to classes:', error);
-        callbacks.onSyncStatus?.(false, 'Gagal memuat data kelas dari Cloud');
+        handleListenerError('classes', error, 'Gagal memuat data kelas dari Cloud');
       }
     );
 
@@ -119,8 +138,7 @@ export const FirestoreService = {
         checkInitialSync();
       },
       (error) => {
-        console.error('Error listening to subjects:', error);
-        callbacks.onSyncStatus?.(false, 'Gagal memuat data mata pelajaran dari Cloud');
+        handleListenerError('subjects', error, 'Gagal memuat data mata pelajaran dari Cloud');
       }
     );
 
@@ -135,8 +153,7 @@ export const FirestoreService = {
         checkInitialSync();
       },
       (error) => {
-        console.error('Error listening to time slots:', error);
-        callbacks.onSyncStatus?.(false, 'Gagal memuat jam pelajaran dari Cloud');
+        handleListenerError('time slots', error, 'Gagal memuat jam pelajaran dari Cloud');
       }
     );
 
@@ -150,8 +167,7 @@ export const FirestoreService = {
         checkInitialSync();
       },
       (error) => {
-        console.error('Error listening to schedules:', error);
-        callbacks.onSyncStatus?.(false, 'Gagal memuat jadwal mengajar dari Cloud');
+        handleListenerError('schedules', error, 'Gagal memuat jadwal mengajar dari Cloud');
       }
     );
 
@@ -170,8 +186,7 @@ export const FirestoreService = {
         checkInitialSync();
       },
       (error) => {
-        console.error('Error listening to attendance:', error);
-        callbacks.onSyncStatus?.(false, 'Gagal memuat catatan presensi dari Cloud');
+        handleListenerError('attendance', error, 'Gagal memuat catatan presensi dari Cloud');
       }
     );
 
@@ -184,7 +199,7 @@ export const FirestoreService = {
         callbacks.onPiketAccounts?.(list);
       },
       (error) => {
-        console.error('Error listening to piket accounts:', error);
+        handleListenerError('piket accounts', error, 'Gagal memuat akun piket dari Cloud');
       }
     );
 
@@ -197,7 +212,9 @@ export const FirestoreService = {
         }
       },
       (error) => {
-        console.warn('Note: schoolLocation config doc not initialized yet or read error:', error);
+        if (!isQuotaExceededError(error)) {
+          console.warn('Note: schoolLocation config doc not initialized yet or read error:', error);
+        }
       }
     );
 
@@ -220,7 +237,7 @@ export const FirestoreService = {
       await setDoc(docRef, cleanForFirestore(config), { merge: true });
       console.log('School location config synced to Firestore');
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.SETTINGS}/schoolLocation`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.SETTINGS}/schoolLocation`, 'pengaturan lokasi');
     }
   },
 
@@ -232,8 +249,7 @@ export const FirestoreService = {
       await setDoc(docRef, cleaned, { merge: true });
       console.log('Attendance successfully synced to Firestore:', record.id);
     } catch (err) {
-      console.error('Failed to sync attendance to Firestore:', err);
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.ATTENDANCE}/${record.id}`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.ATTENDANCE}/${record.id}`, 'catatan presensi');
     }
   },
 
@@ -243,7 +259,7 @@ export const FirestoreService = {
     try {
       await deleteDoc(docRef);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.ATTENDANCE}/${id}`);
+      handleWriteError(err, OperationType.DELETE, `${COLLECTIONS.ATTENDANCE}/${id}`, 'catatan presensi');
     }
   },
 
@@ -254,7 +270,7 @@ export const FirestoreService = {
     try {
       await setDoc(docRef, cleaned, { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.TEACHERS}/${teacher.id}`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.TEACHERS}/${teacher.id}`, 'guru');
     }
   },
 
@@ -263,7 +279,7 @@ export const FirestoreService = {
     try {
       await deleteDoc(docRef);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.TEACHERS}/${id}`);
+      handleWriteError(err, OperationType.DELETE, `${COLLECTIONS.TEACHERS}/${id}`, 'guru');
     }
   },
 
@@ -276,7 +292,7 @@ export const FirestoreService = {
       });
       await batch.commit();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.TEACHERS);
+      handleWriteError(err, OperationType.WRITE, COLLECTIONS.TEACHERS, 'data guru massal');
     }
   },
 
@@ -286,7 +302,7 @@ export const FirestoreService = {
     try {
       await setDoc(docRef, cleanForFirestore(cls), { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.CLASSES}/${cls.id}`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.CLASSES}/${cls.id}`, 'kelas');
     }
   },
 
@@ -295,7 +311,7 @@ export const FirestoreService = {
     try {
       await deleteDoc(docRef);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.CLASSES}/${id}`);
+      handleWriteError(err, OperationType.DELETE, `${COLLECTIONS.CLASSES}/${id}`, 'kelas');
     }
   },
 
@@ -308,7 +324,7 @@ export const FirestoreService = {
       });
       await batch.commit();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.CLASSES);
+      handleWriteError(err, OperationType.WRITE, COLLECTIONS.CLASSES, 'data kelas massal');
     }
   },
 
@@ -318,7 +334,7 @@ export const FirestoreService = {
     try {
       await setDoc(docRef, cleanForFirestore(sub), { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.SUBJECTS}/${sub.id}`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.SUBJECTS}/${sub.id}`, 'mata pelajaran');
     }
   },
 
@@ -327,7 +343,7 @@ export const FirestoreService = {
     try {
       await deleteDoc(docRef);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.SUBJECTS}/${id}`);
+      handleWriteError(err, OperationType.DELETE, `${COLLECTIONS.SUBJECTS}/${id}`, 'mata pelajaran');
     }
   },
 
@@ -340,7 +356,7 @@ export const FirestoreService = {
       });
       await batch.commit();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.SUBJECTS);
+      handleWriteError(err, OperationType.WRITE, COLLECTIONS.SUBJECTS, 'mata pelajaran massal');
     }
   },
 
@@ -350,7 +366,7 @@ export const FirestoreService = {
     try {
       await setDoc(docRef, cleanForFirestore(slot), { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.TIME_SLOTS}/${slot.id}`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.TIME_SLOTS}/${slot.id}`, 'jam pelajaran');
     }
   },
 
@@ -359,7 +375,7 @@ export const FirestoreService = {
     try {
       await deleteDoc(docRef);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.TIME_SLOTS}/${id}`);
+      handleWriteError(err, OperationType.DELETE, `${COLLECTIONS.TIME_SLOTS}/${id}`, 'jam pelajaran');
     }
   },
 
@@ -381,7 +397,7 @@ export const FirestoreService = {
       });
       await batch.commit();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.TIME_SLOTS);
+      handleWriteError(err, OperationType.WRITE, COLLECTIONS.TIME_SLOTS, 'jam pelajaran massal');
     }
   },
 
@@ -391,7 +407,7 @@ export const FirestoreService = {
     try {
       await setDoc(docRef, cleanForFirestore(schedule), { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.SCHEDULES}/${schedule.id}`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.SCHEDULES}/${schedule.id}`, 'jadwal mengajar');
     }
   },
 
@@ -400,7 +416,7 @@ export const FirestoreService = {
     try {
       await deleteDoc(docRef);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.SCHEDULES}/${id}`);
+      handleWriteError(err, OperationType.DELETE, `${COLLECTIONS.SCHEDULES}/${id}`, 'jadwal mengajar');
     }
   },
 
@@ -413,7 +429,7 @@ export const FirestoreService = {
       });
       await batch.commit();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.SCHEDULES);
+      handleWriteError(err, OperationType.WRITE, COLLECTIONS.SCHEDULES, 'jadwal massal');
     }
   },
 
@@ -428,7 +444,7 @@ export const FirestoreService = {
       });
       await batch.commit();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.SCHEDULES);
+      handleWriteError(err, OperationType.WRITE, COLLECTIONS.SCHEDULES, 'seluruh jadwal');
     }
   },
 
@@ -438,7 +454,7 @@ export const FirestoreService = {
       const ref = doc(db, COLLECTIONS.PIKET_ACCOUNTS, account.id);
       await setDoc(ref, cleanForFirestore(account), { merge: true });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.PIKET_ACCOUNTS}/${account.id}`);
+      handleWriteError(err, OperationType.WRITE, `${COLLECTIONS.PIKET_ACCOUNTS}/${account.id}`, 'akun piket');
     }
   },
 
@@ -451,7 +467,7 @@ export const FirestoreService = {
       });
       await batch.commit();
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, COLLECTIONS.PIKET_ACCOUNTS);
+      handleWriteError(err, OperationType.WRITE, COLLECTIONS.PIKET_ACCOUNTS, 'akun piket massal');
     }
   },
 
@@ -459,11 +475,11 @@ export const FirestoreService = {
     try {
       await deleteDoc(doc(db, COLLECTIONS.PIKET_ACCOUNTS, id));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.PIKET_ACCOUNTS}/${id}`);
+      handleWriteError(err, OperationType.DELETE, `${COLLECTIONS.PIKET_ACCOUNTS}/${id}`, 'akun piket');
     }
   },
 
-  // Force fetch all data directly from Firestore
+  // Force fetch all data directly from Firestore (with automatic local storage fallback when quota is reached)
   async fetchAllDirect(): Promise<{
     teachers: Teacher[];
     classes: ClassRoom[];
@@ -473,37 +489,53 @@ export const FirestoreService = {
     attendance: AttendanceRecord[];
     piketAccounts: PiketAccount[];
   }> {
-    const [tSnap, cSnap, sSnap, tsSnap, schSnap, aSnap, pSnap] = await Promise.all([
-      getDocs(collection(db, COLLECTIONS.TEACHERS)),
-      getDocs(collection(db, COLLECTIONS.CLASSES)),
-      getDocs(collection(db, COLLECTIONS.SUBJECTS)),
-      getDocs(collection(db, COLLECTIONS.TIME_SLOTS)),
-      getDocs(collection(db, COLLECTIONS.SCHEDULES)),
-      getDocs(collection(db, COLLECTIONS.ATTENDANCE)),
-      getDocs(collection(db, COLLECTIONS.PIKET_ACCOUNTS)),
-    ]);
+    try {
+      const [tSnap, cSnap, sSnap, tsSnap, schSnap, aSnap, pSnap] = await Promise.all([
+        getDocs(collection(db, COLLECTIONS.TEACHERS)),
+        getDocs(collection(db, COLLECTIONS.CLASSES)),
+        getDocs(collection(db, COLLECTIONS.SUBJECTS)),
+        getDocs(collection(db, COLLECTIONS.TIME_SLOTS)),
+        getDocs(collection(db, COLLECTIONS.SCHEDULES)),
+        getDocs(collection(db, COLLECTIONS.ATTENDANCE)),
+        getDocs(collection(db, COLLECTIONS.PIKET_ACCOUNTS)),
+      ]);
 
-    const teachers: Teacher[] = [];
-    tSnap.forEach((d) => teachers.push(d.data() as Teacher));
+      const teachers: Teacher[] = [];
+      tSnap.forEach((d) => teachers.push(d.data() as Teacher));
 
-    const classes: ClassRoom[] = [];
-    cSnap.forEach((d) => classes.push(d.data() as ClassRoom));
+      const classes: ClassRoom[] = [];
+      cSnap.forEach((d) => classes.push(d.data() as ClassRoom));
 
-    const subjects: Subject[] = [];
-    sSnap.forEach((d) => subjects.push(d.data() as Subject));
+      const subjects: Subject[] = [];
+      sSnap.forEach((d) => subjects.push(d.data() as Subject));
 
-    const timeSlots: TimeSlot[] = [];
-    tsSnap.forEach((d) => timeSlots.push(d.data() as TimeSlot));
+      const timeSlots: TimeSlot[] = [];
+      tsSnap.forEach((d) => timeSlots.push(d.data() as TimeSlot));
 
-    const schedules: ScheduleItem[] = [];
-    schSnap.forEach((d) => schedules.push(d.data() as ScheduleItem));
+      const schedules: ScheduleItem[] = [];
+      schSnap.forEach((d) => schedules.push(d.data() as ScheduleItem));
 
-    const attendance: AttendanceRecord[] = [];
-    aSnap.forEach((d) => attendance.push(d.data() as AttendanceRecord));
+      const attendance: AttendanceRecord[] = [];
+      aSnap.forEach((d) => attendance.push(d.data() as AttendanceRecord));
 
-    const piketAccounts: PiketAccount[] = [];
-    pSnap.forEach((d) => piketAccounts.push(d.data() as PiketAccount));
+      const piketAccounts: PiketAccount[] = [];
+      pSnap.forEach((d) => piketAccounts.push(d.data() as PiketAccount));
 
-    return { teachers, classes, subjects, timeSlots, schedules, attendance, piketAccounts };
+      return { teachers, classes, subjects, timeSlots, schedules, attendance, piketAccounts };
+    } catch (err) {
+      if (isQuotaExceededError(err)) {
+        console.warn('[Firestore] fetchAllDirect: Kuota Cloud Firestore tercapai. Mengambil data dari cache penyimpanan lokal (Storage).');
+        return {
+          teachers: Storage.getTeachers(),
+          classes: Storage.getClasses(),
+          subjects: Storage.getSubjects(),
+          timeSlots: Storage.getTimeSlots(),
+          schedules: Storage.getSchedules(),
+          attendance: Storage.getAttendance(),
+          piketAccounts: Storage.getPiketAccounts(),
+        };
+      }
+      throw err;
+    }
   },
 };

@@ -15,7 +15,7 @@ import { Storage } from './utils/storage';
 import { INITIAL_TIME_SLOTS } from './data/initialData';
 import { syncPiketAccountsWithTeachers } from './utils/piketAuth';
 import { FirestoreService } from './services/firestoreService';
-import { testFirestoreConnection } from './firebase';
+import { testFirestoreConnection, isQuotaExceededError } from './firebase';
 import { Navbar } from './components/Navbar';
 import { SelfAttendance } from './components/SelfAttendance';
 import { TodayStats } from './components/TodayStats';
@@ -211,8 +211,13 @@ export default function App() {
       setIsCloudSynced(true);
       setSyncToastMessage('Sinkronisasi Sukses: Seluruh data terbaru berhasil dimuat dari Google Cloud Firestore!');
     } catch (err) {
-      console.error('Manual sync failed:', err);
-      setSyncToastMessage('Gagal sinkronisasi data dari Cloud. Periksa koneksi internet.');
+      if (isQuotaExceededError(err)) {
+        console.warn('Manual sync: Kuota harian Cloud Firestore sedang penuh. Data aplikasi aktif menggunakan penyimpanan lokal.');
+        setSyncToastMessage('Mode Offline: Kuota harian Cloud Firestore sedang penuh. Data tetap aktif tersinkron di penyimpanan lokal.');
+      } else {
+        console.error('Manual sync failed:', err);
+        setSyncToastMessage('Gagal sinkronisasi data dari Cloud. Periksa koneksi internet.');
+      }
     } finally {
       setIsManualSyncing(false);
       setTimeout(() => setSyncToastMessage(null), 4000);

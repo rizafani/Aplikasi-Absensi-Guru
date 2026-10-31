@@ -85,9 +85,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             />
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span>PEMERINTAH ACEH • DINAS PENDIDIKAN • CABDIN ACEH TIMUR</span>
-            <span className="hidden sm:inline-flex items-center gap-1 ml-2 px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-semibold border border-emerald-500/30">
-              <CloudCheck className="w-3 h-3 text-emerald-400" />
-              {isCloudSynced ? 'Cloud Aktif' : 'Menghubungkan...'}
+            <span className={`hidden sm:inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded text-[10px] font-semibold border ${
+              isCloudSynced
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                : 'bg-amber-500/20 text-amber-200 border-amber-500/30'
+            }`}>
+              <CloudCheck className={`w-3 h-3 ${isCloudSynced ? 'text-emerald-400' : 'text-amber-400'}`} />
+              {isCloudSynced ? 'Cloud Aktif' : 'Mode Offline / Sinkron Lokal'}
             </span>
             {onManualSync && (
               <button
