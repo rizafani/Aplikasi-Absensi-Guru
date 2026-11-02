@@ -1,4 +1,18 @@
-import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, UserSession, SchoolLogos, PiketAccount, SchoolLocationConfig } from '../types';
+import {
+  Teacher,
+  ClassRoom,
+  Subject,
+  TimeSlot,
+  ScheduleItem,
+  AttendanceRecord,
+  UserSession,
+  SchoolLogos,
+  PiketAccount,
+  SchoolLocationConfig,
+  TeacherFaceProfile,
+  SmileCaptureConfig,
+  DEFAULT_SMILE_CAPTURE_CONFIG
+} from '../types';
 import { INITIAL_TEACHERS, INITIAL_CLASSES, INITIAL_SUBJECTS, INITIAL_TIME_SLOTS, INITIAL_SCHEDULES, INITIAL_ATTENDANCE } from '../data/initialData';
 import { DEFAULT_SCHOOL_LOCATION } from './geo';
 
@@ -19,6 +33,8 @@ const STORAGE_KEYS = {
   ADMIN_PASSWORD: 'sman1julok_admin_password_v1',
   LOCATION_CONFIG: 'sman1julok_location_config_v1',
   DATABASE_MODE: 'sman1julok_database_mode_v1',
+  SMILE_CAPTURE_CONFIG: 'sman1julok_smile_capture_config_v1',
+  FACE_PROFILES: 'sman1julok_teacher_face_profiles_v1',
 };
 
 /**
@@ -234,6 +250,48 @@ export const Storage = {
     safeSet(STORAGE_KEYS.DATABASE_MODE, mode);
   },
 
+  getSmileCaptureConfig(): SmileCaptureConfig {
+    const saved = safeGet<Partial<SmileCaptureConfig>>(STORAGE_KEYS.SMILE_CAPTURE_CONFIG, {});
+    return {
+      enabled: saved.enabled !== undefined ? saved.enabled : DEFAULT_SMILE_CAPTURE_CONFIG.enabled,
+      autoCaptureCountdown: typeof saved.autoCaptureCountdown === 'number' ? saved.autoCaptureCountdown : DEFAULT_SMILE_CAPTURE_CONFIG.autoCaptureCountdown,
+      sensitivity: saved.sensitivity || DEFAULT_SMILE_CAPTURE_CONFIG.sensitivity,
+      requireFaceEnrollment: saved.requireFaceEnrollment !== undefined ? saved.requireFaceEnrollment : DEFAULT_SMILE_CAPTURE_CONFIG.requireFaceEnrollment,
+      soundEffect: saved.soundEffect !== undefined ? saved.soundEffect : DEFAULT_SMILE_CAPTURE_CONFIG.soundEffect,
+    };
+  },
+  saveSmileCaptureConfig(config: SmileCaptureConfig): void {
+    safeSet(STORAGE_KEYS.SMILE_CAPTURE_CONFIG, config);
+  },
+
+  getFaceProfiles(): TeacherFaceProfile[] {
+    return safeGet<TeacherFaceProfile[]>(STORAGE_KEYS.FACE_PROFILES, []);
+  },
+  saveFaceProfiles(profiles: TeacherFaceProfile[]): void {
+    safeSet(STORAGE_KEYS.FACE_PROFILES, profiles);
+  },
+  getFaceProfileByTeacherId(teacherId: string): TeacherFaceProfile | undefined {
+    const list = this.getFaceProfiles();
+    return list.find((p) => p.teacherId === teacherId && p.status === 'ACTIVE');
+  },
+  saveFaceProfile(profile: TeacherFaceProfile): void {
+    const list = this.getFaceProfiles();
+    const index = list.findIndex((p) => p.teacherId === profile.teacherId);
+    let updated: TeacherFaceProfile[];
+    if (index >= 0) {
+      updated = [...list];
+      updated[index] = { ...profile, updatedAt: new Date().toISOString() };
+    } else {
+      updated = [...list, { ...profile, updatedAt: new Date().toISOString() }];
+    }
+    this.saveFaceProfiles(updated);
+  },
+  deleteFaceProfile(teacherId: string): void {
+    const list = this.getFaceProfiles();
+    const filtered = list.filter((p) => p.teacherId !== teacherId);
+    this.saveFaceProfiles(filtered);
+  },
+
   exportFullDatabase(): string {
     const dump = {
       version: '1.0',
@@ -248,6 +306,8 @@ export const Storage = {
       piketAccounts: this.getPiketAccounts(),
       locationConfig: this.getLocationConfig(),
       logos: this.getSchoolLogos(),
+      smileCaptureConfig: this.getSmileCaptureConfig(),
+      faceProfiles: this.getFaceProfiles(),
     };
     return JSON.stringify(dump, null, 2);
   },
@@ -264,6 +324,8 @@ export const Storage = {
       if (Array.isArray(data.piketAccounts)) this.savePiketAccounts(data.piketAccounts);
       if (data.locationConfig) this.saveLocationConfig(data.locationConfig);
       if (data.logos) this.saveSchoolLogos(data.logos);
+      if (data.smileCaptureConfig) this.saveSmileCaptureConfig(data.smileCaptureConfig);
+      if (Array.isArray(data.faceProfiles)) this.saveFaceProfiles(data.faceProfiles);
       return true;
     } catch (e) {
       console.error('Failed to import database:', e);

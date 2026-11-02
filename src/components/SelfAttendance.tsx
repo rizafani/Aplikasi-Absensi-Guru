@@ -1,7 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Teacher, ClassRoom, Subject, TimeSlot, ScheduleItem, AttendanceRecord, DayOfWeek, SchoolLogos, SchoolLocationConfig } from '../types';
+import {
+  Teacher,
+  ClassRoom,
+  Subject,
+  TimeSlot,
+  ScheduleItem,
+  AttendanceRecord,
+  DayOfWeek,
+  SchoolLogos,
+  SchoolLocationConfig,
+  TeacherFaceProfile,
+  SmileCaptureConfig
+} from '../types';
 import { INDONESIAN_DAYS, getTodayDayName, getTodayDateString, formatScheduleTimeSlots } from '../data/initialData';
 import { DEFAULT_SCHOOL_LOCATION, formatDistanceMeters, getGoogleMapsUrl, validateUserLocation } from '../utils/geo';
+import { detectSmileInVideo, playShutterSound } from '../utils/faceSmileDetector';
 import confetti from 'canvas-confetti';
 import {
   Camera,
@@ -26,10 +39,14 @@ import {
   ExternalLink,
   ShieldAlert,
   ShieldCheck,
-  Loader2
+  Loader2,
+  Smile,
+  Wand2,
+  Info
 } from 'lucide-react';
 import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { QRScannerModal } from './QRScannerModal';
+import { TeacherFaceEnrollmentModal } from './TeacherFaceEnrollmentModal';
 
 interface SelfAttendanceProps {
   teachers: Teacher[];
@@ -41,6 +58,9 @@ interface SelfAttendanceProps {
   onGoToStats: () => void;
   logos?: SchoolLogos;
   locationConfig?: SchoolLocationConfig;
+  smileConfig?: SmileCaptureConfig;
+  faceProfiles?: TeacherFaceProfile[];
+  onSaveFaceProfile?: (profile: TeacherFaceProfile) => void;
 }
 
 export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
@@ -52,7 +72,10 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
   onRecordAttendance,
   onGoToStats,
   logos,
-  locationConfig
+  locationConfig,
+  smileConfig,
+  faceProfiles = [],
+  onSaveFaceProfile
 }) => {
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
@@ -93,6 +116,22 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
   const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
   const [isInsideRadius, setIsInsideRadius] = useState<boolean | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
+
+  // Smile Auto-Capture & Face Profile States
+  const isSmileFeatureEnabledByAdmin = smileConfig?.enabled ?? true;
+  const [autoSmileEnabled, setAutoSmileEnabled] = useState<boolean>(true);
+  const [liveSmileScore, setLiveSmileScore] = useState<number>(0);
+  const [liveSmileFeedback, setLiveSmileFeedback] = useState<string>('Posisikan wajah di tengah bingkai');
+  const [isFacePositionGood, setIsFacePositionGood] = useState<boolean>(false);
+  const [countdownValue, setCountdownValue] = useState<number | null>(null);
+  const [isFlashActive, setIsFlashActive] = useState<boolean>(false);
+
+  // Teacher Face Enrollment Modal state
+  const [isEnrollmentModalOpen, setIsEnrollmentModalOpen] = useState<boolean>(false);
+
+  const selectedTeacherProfile = faceProfiles.find(
+    (p) => p.teacherId === selectedTeacherId && p.status === 'ACTIVE'
+  );
 
   const schoolConfig = locationConfig || DEFAULT_SCHOOL_LOCATION;
 
@@ -291,6 +330,8 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
+    setLiveSmileScore(0);
+    setCountdownValue(null);
   };
 
   // Ref callback ensures srcObject is assigned the exact moment the <video> element mounts to the DOM
@@ -319,6 +360,103 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
     setCameraFacing(nextFacing);
     startCamera(nextFacing);
   };
+
+  // Trigger Automatic Smile Capture
+  const triggerAutoCapture = useCallback(() => {
+    setIsFlashActive(true);
+    setTimeout(() => setIsFlashActive(false), 300);
+
+    if (smileConfig?.soundEffect !== false) {
+      playShutterSound();
+    }
+
+    confetti({
+      particleCount: 40,
+      spread: 60,
+      origin: { y: 0.65 }
+    });
+
+    capturePhoto();
+  }, [smileConfig, selectedTeacherId, cameraFacing, teachers]);
+
+  // Real-time Smile & Face Detection Loop
+  useEffect(() => {
+    if (!isCameraActive || !isSmileFeatureEnabledByAdmin || !autoSmileEnabled) {
+      setLiveSmileScore(0);
+      setCountdownValue(null);
+      return;
+    }
+
+    let isMounted = true;
+    let animId: number | null = null;
+    const requiredCountdown = smileConfig?.autoCaptureCountdown ?? 2;
+    let currentCountdown = requiredCountdown;
+    let countdownTimer: NodeJS.Timeout | null = null;
+    let isCountingDown = false;
+
+    const checkFrame = () => {
+      if (!isMounted) return;
+
+      if (videoRef.current && videoRef.current.readyState >= 2) {
+        const res = detectSmileInVideo(videoRef.current, {
+          personalProfile: selectedTeacherProfile,
+          sensitivity: smileConfig?.sensitivity || 'MEDIUM'
+        });
+
+        setLiveSmileScore(res.smileScore);
+        setLiveSmileFeedback(res.feedbackText);
+        setIsFacePositionGood(res.facePosition === 'GOOD');
+
+        if (res.isSmiling && res.facePosition === 'GOOD') {
+          // If countdown is set to 0 (direct instant capture)
+          if (requiredCountdown === 0) {
+            triggerAutoCapture();
+            return;
+          }
+
+          if (!isCountingDown) {
+            isCountingDown = true;
+            currentCountdown = requiredCountdown;
+            setCountdownValue(currentCountdown);
+
+            countdownTimer = setInterval(() => {
+              currentCountdown--;
+              if (currentCountdown <= 0) {
+                if (countdownTimer) clearInterval(countdownTimer);
+                countdownTimer = null;
+                isCountingDown = false;
+                setCountdownValue(null);
+                triggerAutoCapture();
+              } else {
+                setCountdownValue(currentCountdown);
+              }
+            }, 1000);
+          }
+        } else {
+          // If smile lost during countdown, cancel countdown
+          if (isCountingDown && res.smileScore < (res.threshold - 15)) {
+            if (countdownTimer) {
+              clearInterval(countdownTimer);
+              countdownTimer = null;
+            }
+            isCountingDown = false;
+            currentCountdown = requiredCountdown;
+            setCountdownValue(null);
+          }
+        }
+      }
+
+      animId = requestAnimationFrame(checkFrame);
+    };
+
+    animId = requestAnimationFrame(checkFrame);
+
+    return () => {
+      isMounted = false;
+      if (animId) cancelAnimationFrame(animId);
+      if (countdownTimer) clearInterval(countdownTimer);
+    };
+  }, [isCameraActive, isSmileFeatureEnabledByAdmin, autoSmileEnabled, selectedTeacherProfile, smileConfig, triggerAutoCapture]);
 
   const capturePhoto = () => {
     if (!videoRef.current) return;
@@ -382,6 +520,16 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
 
     if (!selectedTeacherId) {
       alert('Silakan pilih nama guru terlebih dahulu.');
+      return;
+    }
+
+    if (smileConfig?.requireFaceEnrollment && !selectedTeacherProfile) {
+      alert(
+        'Perekaman Wajah Mandiri Diwajibkan!\n\n' +
+        'Administrator sekolah mewajibkan setiap guru merekam profil wajah & senyuman mandiri sebelum melakukan presensi.\n\n' +
+        'Silakan klik tombol "Rekam Profil Wajah Mandiri" (hanya butuh 30 detik).'
+      );
+      setIsEnrollmentModalOpen(true);
       return;
     }
 
@@ -808,6 +956,60 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Perekaman Profil Wajah Mandiri Guru */}
+            {selectedTeacher && (
+              <div className="p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-slate-50 border-blue-200/80 shadow-2xs">
+                <div className="flex items-center gap-3">
+                  {selectedTeacherProfile ? (
+                    <div className="relative shrink-0">
+                      <img
+                        src={selectedTeacherProfile.smilePhotoUrl || selectedTeacherProfile.neutralPhotoUrl}
+                        alt="Profil Wajah"
+                        className="w-12 h-12 rounded-xl object-cover border-2 border-emerald-500 shadow-2xs"
+                      />
+                      <div className="absolute -bottom-1 -right-1 bg-emerald-600 text-white rounded-full p-0.5 shadow-2xs">
+                        <Check className="w-2.5 h-2.5" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-amber-100 border border-amber-300 text-amber-700 flex items-center justify-center shrink-0 shadow-2xs">
+                      <Smile className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-slate-900">
+                        {selectedTeacherProfile ? 'Profil Wajah & Kalibrasi Senyum Terdaftar' : 'Perekaman Wajah Mandiri Belum Dilakukan'}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          selectedTeacherProfile
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-amber-100 text-amber-800 border border-amber-300'
+                        }`}
+                      >
+                        {selectedTeacherProfile ? 'Aktif' : 'Disarankan'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                      {selectedTeacherProfile
+                        ? `Telah terekam mandiri pada ${new Date(selectedTeacherProfile.enrolledAt).toLocaleDateString('id-ID')}. Kamera presensi siap memotret otomatis saat Anda tersenyum.`
+                        : 'Rekam mandiri profil wajah Anda (30 detik). Kamera akan otomatis mengenali wajah dan memotret saat Anda tersenyum di kelas.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsEnrollmentModalOpen(true)}
+                  className="px-3.5 py-2 text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 bg-white border border-blue-300 hover:border-blue-400 text-blue-700 hover:bg-blue-50 active:scale-95"
+                >
+                  <Smile className="w-3.5 h-3.5 text-amber-500" />
+                  <span>{selectedTeacherProfile ? 'Atur Ulang / Kalibrasi Senyum' : 'Rekam Profil Wajah Mandiri'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Step 2: Date & Day Selection */}
@@ -1198,7 +1400,7 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                 </div>
               ) : isCameraActive ? (
                 <div className="space-y-3">
-                  <div className="relative max-w-md mx-auto aspect-4/3 rounded-xl overflow-hidden bg-black shadow-inner border border-slate-700">
+                  <div className="relative max-w-md mx-auto aspect-4/3 rounded-2xl overflow-hidden bg-black shadow-lg border-2 border-slate-700">
                     <video
                       ref={setVideoRef}
                       autoPlay
@@ -1206,41 +1408,152 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
                       muted
                       className={`w-full h-full object-cover ${cameraFacing === 'user' ? 'scale-x-[-1]' : ''}`}
                     />
-                    <div className="absolute top-3 left-3 bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm">
-                      <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
-                      <span>Kamera Aktif</span>
+
+                    {/* Shutter Flash Animation */}
+                    {isFlashActive && (
+                      <div className="absolute inset-0 bg-white z-40 animate-out fade-out duration-300 pointer-events-none" />
+                    )}
+
+                    {/* Camera Active Badge */}
+                    <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+                      <div className="bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm backdrop-blur-xs">
+                        <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+                        <span>Kamera Aktif</span>
+                      </div>
+                      {isSmileFeatureEnabledByAdmin && autoSmileEnabled && (
+                        <div className="bg-amber-500/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm backdrop-blur-xs">
+                          <Smile className="w-3 h-3" />
+                          <span>Deteksi Senyum Otomatis</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="absolute bottom-3 left-3 right-3 text-center pointer-events-none">
-                      <span className="text-[11px] text-white/90 bg-black/60 px-3 py-1 rounded-full backdrop-blur-xs">
-                        Arahkan wajah & ruang kelas ke dalam layar
+
+                    {/* Oval Face Guide Frame Overlay */}
+                    {isSmileFeatureEnabledByAdmin && autoSmileEnabled && (
+                      <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center">
+                        <div
+                          className={`w-48 h-60 rounded-[50%] border-3 transition-all duration-300 flex items-center justify-center ${
+                            countdownValue !== null
+                              ? 'border-emerald-400 bg-emerald-500/20 scale-105 shadow-[0_0_25px_rgba(52,211,153,0.6)]'
+                              : isFacePositionGood && liveSmileScore >= 50
+                              ? 'border-amber-400 bg-amber-400/10'
+                              : isFacePositionGood
+                              ? 'border-blue-400/80 bg-blue-500/5'
+                              : 'border-white/50 border-dashed'
+                          }`}
+                        />
+                      </div>
+                    )}
+
+                    {/* Smile Countdown Large Badge */}
+                    {countdownValue !== null && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none animate-in zoom-in-75">
+                        <div className="bg-black/80 backdrop-blur-md text-white px-6 py-4 rounded-3xl border-2 border-emerald-400 shadow-2xl flex flex-col items-center gap-1 text-center">
+                          <div className="text-4xl font-black text-amber-300 animate-bounce">
+                            {countdownValue}
+                          </div>
+                          <div className="text-xs font-extrabold text-emerald-300 flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Senyum Terdeteksi! Bersiap... 📸</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Top Smile Meter & Status HUD */}
+                    {isSmileFeatureEnabledByAdmin && autoSmileEnabled && (
+                      <div className="absolute top-11 inset-x-3 z-20 bg-black/75 backdrop-blur-md text-white p-2.5 rounded-xl border border-white/10 space-y-1.5 shadow-md">
+                        <div className="flex justify-between items-center text-[11px] font-semibold">
+                          <span className="flex items-center gap-1.5 text-blue-200">
+                            <Smile className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Tingkat Senyuman:</span>
+                          </span>
+                          <span className="font-mono font-bold flex items-center gap-1">
+                            <span className="text-sm">
+                              {liveSmileScore >= 70 ? '😁' : liveSmileScore >= 45 ? '🙂' : '😐'}
+                            </span>
+                            <span className={liveSmileScore >= 65 ? 'text-emerald-300' : 'text-amber-300'}>
+                              {liveSmileScore}%
+                            </span>
+                          </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden p-0.5 border border-slate-700">
+                          <div
+                            className={`h-full rounded-full transition-all duration-150 ${
+                              liveSmileScore >= 65
+                                ? 'bg-gradient-to-r from-amber-400 via-emerald-400 to-teal-300'
+                                : 'bg-gradient-to-r from-blue-500 to-cyan-400'
+                            }`}
+                            style={{ width: `${Math.min(100, liveSmileScore)}%` }}
+                          />
+                        </div>
+
+                        {/* Feedback text */}
+                        <div className="text-[10px] text-center text-slate-200 truncate font-medium">
+                          {liveSmileFeedback}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bottom Helper Bar */}
+                    <div className="absolute bottom-3 inset-x-3 z-20 text-center pointer-events-none">
+                      <span className="text-[10px] text-white/90 bg-black/60 px-3 py-1 rounded-full backdrop-blur-xs font-medium border border-white/10 inline-flex items-center gap-1">
+                        {isSmileFeatureEnabledByAdmin && autoSmileEnabled
+                          ? 'Tersenyumlah menghadap kamera untuk mengambil foto otomatis 📸'
+                          : 'Arahkan wajah & ruang kelas ke dalam layar'}
                       </span>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-center gap-3">
+                  {/* Camera Control Actions */}
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                    {/* Manual snap button */}
                     <button
                       type="button"
                       onClick={capturePhoto}
-                      className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 active:scale-95 transition-all"
+                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 active:scale-95 transition-all cursor-pointer"
                     >
                       <Camera className="w-4 h-4" />
-                      Ambil Foto Selfie
+                      <span>Ambil Foto Manual</span>
                     </button>
+
+                    {/* Optional Auto-Smile Toggle */}
+                    {isSmileFeatureEnabledByAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setAutoSmileEnabled(!autoSmileEnabled)}
+                        className={`px-3.5 py-2.5 text-xs font-semibold rounded-xl border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                          autoSmileEnabled
+                            ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                            : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                        }`}
+                        title="Aktifkan atau matikan pengambilan foto otomatis saat senyum"
+                      >
+                        <Smile className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Senyum Otomatis: {autoSmileEnabled ? 'ON' : 'OFF'}</span>
+                      </button>
+                    )}
+
+                    {/* Rotate camera */}
                     <button
                       type="button"
                       onClick={handleToggleCameraFacing}
-                      className="px-3.5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-medium rounded-xl flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-medium rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                       title="Ganti ke kamera depan / belakang"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Putar Kamera ({cameraFacing === 'user' ? 'Depan' : 'Belakang'})
+                      <span>{cameraFacing === 'user' ? 'Depan' : 'Belakang'}</span>
                     </button>
+
+                    {/* Close camera */}
                     <button
                       type="button"
                       onClick={stopCamera}
-                      className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium rounded-xl transition-colors"
+                      className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium rounded-xl transition-colors cursor-pointer"
                     >
-                      Tutup Kamera
+                      Tutup
                     </button>
                   </div>
                 </div>
@@ -1384,6 +1697,20 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
         classes={classes}
         onClassScanned={(cls) => {
           handleClassScanned(cls);
+        }}
+      />
+
+      {/* Perekaman Profil Wajah & Kalibrasi Senyum Mandiri Guru */}
+      <TeacherFaceEnrollmentModal
+        isOpen={isEnrollmentModalOpen}
+        onClose={() => setIsEnrollmentModalOpen(false)}
+        teachers={teachers}
+        initialTeacherId={selectedTeacherId}
+        existingProfile={selectedTeacherProfile}
+        onSaveProfile={(profile) => {
+          if (onSaveFaceProfile) {
+            onSaveFaceProfile(profile);
+          }
         }}
       />
     </div>

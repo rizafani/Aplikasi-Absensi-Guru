@@ -10,7 +10,10 @@ import {
   AttendanceRecord,
   SchoolLogos,
   PiketAccount,
-  SchoolLocationConfig
+  SchoolLocationConfig,
+  TeacherFaceProfile,
+  SmileCaptureConfig,
+  DEFAULT_SMILE_CAPTURE_CONFIG
 } from '../types';
 import { INDONESIAN_DAYS, INITIAL_TIME_SLOTS, formatScheduleTimeSlots, getTodayDayName } from '../data/initialData';
 import { DEFAULT_LOGOS } from '../utils/storage';
@@ -69,13 +72,26 @@ import {
   ExternalLink,
   Globe,
   Crosshair,
-  Database
+  Database,
+  Smile,
+  CheckSquare,
+  Square,
+  UserCog
 } from 'lucide-react';
 import { ClassQRCodeModal } from './ClassQRCodeModal';
 import { ReportsPage } from './ReportsPage';
 import { AdminRealtimeDashboard } from './AdminRealtimeDashboard';
 import { ScheduleExcelImportModal } from './ScheduleExcelImportModal';
 import { ClassTimetableMatrix } from './ClassTimetableMatrix';
+import { TeacherFaceEnrollmentModal } from './TeacherFaceEnrollmentModal';
+import { UniversalExcelImportModal, ExcelImportTarget } from './UniversalExcelImportModal';
+import {
+  downloadTeachersExcelTemplate,
+  downloadClassesExcelTemplate,
+  downloadSubjectsExcelTemplate,
+  downloadTimeSlotsExcelTemplate,
+  downloadPiketExcelTemplate
+} from '../utils/universalExcel';
 import {
   downloadScheduleExcelTemplate,
   exportSchedulesToExcel,
@@ -98,15 +114,19 @@ interface AdminDashboardProps {
   piketAccounts?: PiketAccount[];
   onSavePiketAccount?: (data: PiketAccount) => void;
   onBulkSavePiketAccounts?: (data: PiketAccount[]) => void;
+  onReplaceAllPiketAccounts?: (data: PiketAccount[]) => void;
   onSaveTeacher: (data: Teacher) => void;
   onDeleteTeacher: (id: string, name: string) => void;
   onBulkSaveTeachers: (data: Teacher[]) => void;
+  onReplaceAllTeachers?: (data: Teacher[]) => void;
   onSaveClass: (data: ClassRoom) => void;
   onDeleteClass: (id: string, name: string) => void;
   onBulkSaveClasses: (data: ClassRoom[]) => void;
+  onReplaceAllClasses?: (data: ClassRoom[]) => void;
   onSaveSubject: (data: Subject) => void;
   onDeleteSubject: (id: string, name: string) => void;
   onBulkSaveSubjects: (data: Subject[]) => void;
+  onReplaceAllSubjects?: (data: Subject[]) => void;
   onSaveSchedule: (data: ScheduleItem) => void;
   onDeleteSchedule: (id: string) => void;
   onBulkSaveSchedules?: (data: ScheduleItem[]) => void;
@@ -114,6 +134,7 @@ interface AdminDashboardProps {
   onSaveTimeSlot?: (data: TimeSlot) => void;
   onDeleteTimeSlot?: (id: string) => void;
   onBulkSaveTimeSlots?: (data: TimeSlot[]) => void;
+  onReplaceAllTimeSlots?: (data: TimeSlot[]) => void;
   logos?: SchoolLogos;
   onSaveLogos?: (logos: SchoolLogos) => void;
   locationConfig?: SchoolLocationConfig;
@@ -125,6 +146,11 @@ interface AdminDashboardProps {
   onExportBackup?: () => void;
   onRestoreBackup?: (json: string) => void;
   onResetDefaultData?: () => void;
+  smileConfig?: SmileCaptureConfig;
+  onSaveSmileConfig?: (config: SmileCaptureConfig) => void;
+  faceProfiles?: TeacherFaceProfile[];
+  onSaveFaceProfile?: (profile: TeacherFaceProfile) => void;
+  onDeleteFaceProfile?: (teacherId: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -139,15 +165,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   piketAccounts = [],
   onSavePiketAccount,
   onBulkSavePiketAccounts,
+  onReplaceAllPiketAccounts,
   onSaveTeacher,
   onDeleteTeacher,
   onBulkSaveTeachers,
+  onReplaceAllTeachers,
   onSaveClass,
   onDeleteClass,
   onBulkSaveClasses,
+  onReplaceAllClasses,
   onSaveSubject,
   onDeleteSubject,
   onBulkSaveSubjects,
+  onReplaceAllSubjects,
   onSaveSchedule,
   onDeleteSchedule,
   onBulkSaveSchedules,
@@ -155,6 +185,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSaveTimeSlot,
   onDeleteTimeSlot,
   onBulkSaveTimeSlots,
+  onReplaceAllTimeSlots,
   logos = DEFAULT_LOGOS,
   onSaveLogos,
   locationConfig = DEFAULT_SCHOOL_LOCATION,
@@ -165,10 +196,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onToggleDatabaseMode,
   onExportBackup,
   onRestoreBackup,
-  onResetDefaultData
+  onResetDefaultData,
+  smileConfig = DEFAULT_SMILE_CAPTURE_CONFIG,
+  onSaveSmileConfig,
+  faceProfiles = [],
+  onSaveFaceProfile,
+  onDeleteFaceProfile
 }) => {
-  const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'location' | 'import' | 'branding' | 'reports'>('realtime');
+  const [adminTab, setAdminTab] = useState<'realtime' | 'teachers' | 'classes' | 'subjects' | 'schedules' | 'timeslots' | 'piket' | 'location' | 'face-smile' | 'import' | 'branding' | 'reports'>('realtime');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Universal Excel Import Modal State (For Teachers, Classes, Subjects, TimeSlots, and Piket)
+  const [isUniversalExcelModalOpen, setIsUniversalExcelModalOpen] = useState<boolean>(false);
+  const [universalImportTarget, setUniversalImportTarget] = useState<ExcelImportTarget>('teachers');
 
   // Schedule Excel Import Modal State
   const [isScheduleExcelModalOpen, setIsScheduleExcelModalOpen] = useState<boolean>(false);
@@ -178,11 +218,67 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isDetectingCurrentGps, setIsDetectingCurrentGps] = useState<boolean>(false);
   const [locationSavedToast, setLocationSavedToast] = useState<string | null>(null);
 
+  // Smile Auto-Capture & Face Profile Admin State
+  const [smileForm, setSmileForm] = useState<SmileCaptureConfig>(smileConfig);
+  const [smileSavedToast, setSmileSavedToast] = useState<string | null>(null);
+  const [enrollmentTeacherId, setEnrollmentTeacherId] = useState<string>('');
+  const [isEnrollmentModalOpen, setIsEnrollmentModalOpen] = useState<boolean>(false);
+  const [faceSearch, setFaceSearch] = useState<string>('');
+  const [faceStatusFilter, setFaceStatusFilter] = useState<'ALL' | 'ENROLLED' | 'NOT_ENROLLED'>('ALL');
+  const [selectedPhotoPreview, setSelectedPhotoPreview] = useState<{ url: string; title: string; teacherName: string } | null>(null);
+
+  useEffect(() => {
+    if (smileConfig) {
+      setSmileForm(smileConfig);
+    }
+  }, [smileConfig]);
+
   useEffect(() => {
     if (locationConfig) {
       setLocationForm(locationConfig);
     }
   }, [locationConfig]);
+
+  // Handlers for Universal Excel Import
+  const handleUniversalImportTeachers = async (newTeachers: Teacher[], replaceAll: boolean) => {
+    if (replaceAll && onReplaceAllTeachers) {
+      await onReplaceAllTeachers(newTeachers);
+    } else {
+      await onBulkSaveTeachers(newTeachers);
+    }
+  };
+
+  const handleUniversalImportClasses = async (newClasses: ClassRoom[], replaceAll: boolean) => {
+    if (replaceAll && onReplaceAllClasses) {
+      await onReplaceAllClasses(newClasses);
+    } else {
+      await onBulkSaveClasses(newClasses);
+    }
+  };
+
+  const handleUniversalImportSubjects = async (newSubjects: Subject[], replaceAll: boolean) => {
+    if (replaceAll && onReplaceAllSubjects) {
+      await onReplaceAllSubjects(newSubjects);
+    } else {
+      await onBulkSaveSubjects(newSubjects);
+    }
+  };
+
+  const handleUniversalImportTimeSlots = async (newSlots: TimeSlot[], replaceAll: boolean) => {
+    if (replaceAll && onReplaceAllTimeSlots) {
+      await onReplaceAllTimeSlots(newSlots);
+    } else if (onBulkSaveTimeSlots) {
+      await onBulkSaveTimeSlots(newSlots);
+    }
+  };
+
+  const handleUniversalImportPiket = async (newPiket: PiketAccount[], replaceAll: boolean) => {
+    if (replaceAll && onReplaceAllPiketAccounts) {
+      await onReplaceAllPiketAccounts(newPiket);
+    } else if (onBulkSavePiketAccounts) {
+      await onBulkSavePiketAccounts(newPiket);
+    }
+  };
 
   // Piket Management State
   const [piketSearch, setPiketSearch] = useState<string>('');
@@ -219,6 +315,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     phone: '',
     status: 'Aktif'
   });
+
+  // Multi-selection & Bulk Edit state for Teachers
+  const [selectedTeacherIds, setSelectedTeacherIds] = useState<Set<string>>(new Set());
+  const [isBulkEditTeacherModalOpen, setIsBulkEditTeacherModalOpen] = useState<boolean>(false);
+  const [bulkEditTeacherStatus, setBulkEditTeacherStatus] = useState<'KEEP' | 'Aktif' | 'Nonaktif'>('KEEP');
+  const [bulkEditTeacherGender, setBulkEditTeacherGender] = useState<'KEEP' | 'L' | 'P'>('KEEP');
+  const [bulkTeacherSearch, setBulkTeacherSearch] = useState<string>('');
 
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<ClassRoom | null>(null);
@@ -383,7 +486,109 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleDeleteTeacher = (id: string, name: string) => {
     if (confirm(`Yakin ingin menghapus guru "${name}"? Jadwal terkait juga akan disesuaikan.`)) {
       onDeleteTeacher(id, name);
+      setSelectedTeacherIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
+  };
+
+  // --- BATCH / MULTI-SELECT HANDLERS FOR TEACHERS ---
+  const handleToggleSelectTeacher = (id: string) => {
+    setSelectedTeacherIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAllFilteredTeachers = (filtered: Teacher[]) => {
+    const allFilteredSelected = filtered.length > 0 && filtered.every((t) => selectedTeacherIds.has(t.id));
+    setSelectedTeacherIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filtered.forEach((t) => next.delete(t.id));
+      } else {
+        filtered.forEach((t) => next.add(t.id));
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllTotalTeachers = () => {
+    setSelectedTeacherIds(new Set(teachers.map((t) => t.id)));
+  };
+
+  const handleClearSelectedTeachers = () => {
+    setSelectedTeacherIds(new Set());
+  };
+
+  const handleBulkSetTeacherStatus = (status: 'Aktif' | 'Nonaktif') => {
+    if (selectedTeacherIds.size === 0) return;
+    const count = selectedTeacherIds.size;
+    if (!confirm(`Ubah status ${count} guru yang dipilih menjadi "${status}"?`)) return;
+
+    const updated = teachers.map((t) => {
+      if (selectedTeacherIds.has(t.id)) {
+        return { ...t, status };
+      }
+      return t;
+    });
+
+    onBulkSaveTeachers(updated);
+  };
+
+  const handleBulkDeleteSelectedTeachers = () => {
+    if (selectedTeacherIds.size === 0) return;
+    const count = selectedTeacherIds.size;
+    if (
+      !confirm(
+        `PERHATIAN: Anda yakin ingin menghapus ${count} guru terpilih sekaligus?\n\nJadwal mengajar dan data terkait guru-guru ini juga akan disesuaikan.`
+      )
+    ) {
+      return;
+    }
+
+    const remaining = teachers.filter((t) => !selectedTeacherIds.has(t.id));
+    if (onReplaceAllTeachers) {
+      onReplaceAllTeachers(remaining);
+    } else {
+      selectedTeacherIds.forEach((id) => {
+        const t = teachers.find((item) => item.id === id);
+        onDeleteTeacher(id, t?.name || 'Guru');
+      });
+    }
+    setSelectedTeacherIds(new Set());
+  };
+
+  const handleExecuteBulkEditTeachers = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedTeacherIds.size === 0) {
+      alert('Pilih setidaknya 1 guru untuk diedit massal.');
+      return;
+    }
+
+    if (bulkEditTeacherStatus === 'KEEP' && bulkEditTeacherGender === 'KEEP') {
+      alert('Pilih setidaknya satu opsi perubahan (Status atau Jenis Kelamin).');
+      return;
+    }
+
+    const updated = teachers.map((t) => {
+      if (!selectedTeacherIds.has(t.id)) return t;
+      return {
+        ...t,
+        status: bulkEditTeacherStatus !== 'KEEP' ? bulkEditTeacherStatus : t.status,
+        gender: bulkEditTeacherGender !== 'KEEP' ? bulkEditTeacherGender : t.gender
+      };
+    });
+
+    onBulkSaveTeachers(updated);
+    setIsBulkEditTeacherModalOpen(false);
   };
 
   // --- CRUD: CLASSES ---
@@ -1176,6 +1381,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'subjects', label: 'Mata Pelajaran', icon: BookOpen, count: subjects.length },
           { id: 'timeslots', label: 'Jam Pelajaran', icon: Clock, count: timeSlots.length },
           { id: 'location', label: 'Lokasi GPS & Geofence', icon: MapPin, count: null },
+          { id: 'face-smile', label: 'Selfie & Wajah Senyum', icon: Smile, count: faceProfiles.length },
           { id: 'branding', label: 'Logo & Identitas', icon: Award, count: null },
           { id: 'import', label: 'Import Guru & Data', icon: Upload, count: null },
           { id: 'reports', label: 'Laporan & Rekap PDF', icon: FileSpreadsheet, count: attendanceRecords.length }
@@ -1458,100 +1664,285 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB CONTENT: 2. DATA GURU */}
-      {adminTab === 'teachers' && (
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Data Master Guru</h3>
-              <p className="text-xs text-slate-500">
-                Kelola daftar nama dan NIP guru SMA NEGERI 1 JULOK untuk presensi mandiri.
-              </p>
+      {adminTab === 'teachers' && (() => {
+        const filteredTeachers = teachers.filter((t) =>
+          t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          t.nip.includes(searchQuery)
+        );
+        const allFilteredSelected = filteredTeachers.length > 0 && filteredTeachers.every((t) => selectedTeacherIds.has(t.id));
+        const someFilteredSelected = filteredTeachers.some((t) => selectedTeacherIds.has(t.id)) && !allFilteredSelected;
+
+        return (
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  <span>Data Master Guru</span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Kelola daftar nama dan NIP guru SMA NEGERI 1 JULOK untuk presensi mandiri. Tersedia opsi pilih beberapa atau semua untuk edit massal.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUniversalImportTarget('teachers');
+                    setIsUniversalExcelModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  <span>Import Excel (.xlsx)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkEditTeacherModalOpen(true)}
+                  className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Buka panel edit massal guru"
+                >
+                  <UserCog className="w-4 h-4 text-indigo-600" />
+                  <span>Edit Massal Guru</span>
+                </button>
+                <button
+                  onClick={() => handleOpenTeacherModal()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Tambah Guru
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setAdminTab('import')}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-1.5"
-              >
-                <Upload className="w-4 h-4" />
-                Import Sekaligus
-              </button>
-              <button
-                onClick={() => handleOpenTeacherModal()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                Tambah Guru
-              </button>
+            {/* Sticky / Active Bulk Action Bar when teachers are selected */}
+            {selectedTeacherIds.size > 0 ? (
+              <div className="p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border-2 border-blue-400 rounded-2xl shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                    {selectedTeacherIds.size}
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                      <span>{selectedTeacherIds.size} Guru Dipilih</span>
+                      <span className="text-[11px] text-slate-500 font-normal">
+                        (dari {teachers.length} total guru)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-blue-700">
+                      Gunakan tombol aksi berikut untuk memperbarui atau mengedit sekaligus:
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSelectAllFilteredTeachers(filteredTeachers)}
+                    className="px-2.5 py-1.5 text-xs bg-white hover:bg-slate-50 text-slate-700 font-semibold border border-slate-300 rounded-xl shadow-2xs transition-all cursor-pointer"
+                  >
+                    {allFilteredSelected ? 'Batal Pilih Tampilan' : `Pilih Semua Tampilan (${filteredTeachers.length})`}
+                  </button>
+                  {selectedTeacherIds.size < teachers.length && (
+                    <button
+                      type="button"
+                      onClick={handleSelectAllTotalTeachers}
+                      className="px-2.5 py-1.5 text-xs bg-white hover:bg-slate-50 text-blue-700 font-semibold border border-blue-300 rounded-xl shadow-2xs transition-all cursor-pointer"
+                    >
+                      Pilih Semua Total ({teachers.length})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleClearSelectedTeachers}
+                    className="px-2.5 py-1.5 text-xs bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl transition-all cursor-pointer"
+                  >
+                    Batal Pilih
+                  </button>
+                  <div className="h-5 w-px bg-slate-300 mx-1 hidden sm:block" />
+                  <button
+                    type="button"
+                    onClick={() => handleBulkSetTeacherStatus('Aktif')}
+                    className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-2xs transition-all cursor-pointer active:scale-95"
+                    title="Ubah status guru terpilih menjadi Aktif"
+                  >
+                    Set Aktif ({selectedTeacherIds.size})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkSetTeacherStatus('Nonaktif')}
+                    className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-2xs transition-all cursor-pointer active:scale-95"
+                    title="Ubah status guru terpilih menjadi Nonaktif"
+                  >
+                    Set Nonaktif ({selectedTeacherIds.size})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkEditTeacherModalOpen(true)}
+                    className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Edit Massal ({selectedTeacherIds.size})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteSelectedTeachers}
+                    className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus ({selectedTeacherIds.size})</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama guru atau NIP..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSelectAllFilteredTeachers(filteredTeachers)}
+                    className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Pilih Semua Tampilan ({filteredTeachers.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllTotalTeachers}
+                    className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <span>Pilih Seluruh Guru ({teachers.length})</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="p-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someFilteredSelected;
+                        }}
+                        onChange={() => handleToggleSelectAllFilteredTeachers(filteredTeachers)}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        title={allFilteredSelected ? 'Batal pilih semua' : 'Pilih semua guru di tampilan ini'}
+                      />
+                    </th>
+                    <th className="p-3 w-12 text-center">No</th>
+                    <th className="p-3">Nama Lengkap Guru</th>
+                    <th className="p-3">NIP</th>
+                    <th className="p-3">L/P</th>
+                    <th className="p-3">Email</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredTeachers.map((t, idx) => {
+                    const isSelected = selectedTeacherIds.has(t.id);
+                    return (
+                      <tr
+                        key={t.id}
+                        className={`transition-colors ${
+                          isSelected ? 'bg-blue-50/80 hover:bg-blue-100/60 font-medium' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="p-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelectTeacher(t.id)}
+                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                            aria-label={`Pilih guru ${t.name}`}
+                          />
+                        </td>
+                        <td className="p-3 text-center text-slate-400 font-mono">{idx + 1}</td>
+                        <td className="p-3">
+                          <div className="font-bold text-slate-900">{t.name}</div>
+                          {t.phone && <div className="text-[11px] text-slate-400">{t.phone}</div>}
+                        </td>
+                        <td className="p-3 font-mono text-slate-600">{t.nip}</td>
+                        <td className="p-3 text-slate-600 font-semibold">{t.gender}</td>
+                        <td className="p-3 text-slate-500">{t.email || '-'}</td>
+                        <td className="p-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextStatus = t.status === 'Aktif' ? 'Nonaktif' : 'Aktif';
+                              onSaveTeacher({ ...t, status: nextStatus });
+                            }}
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-colors ${
+                              t.status === 'Aktif'
+                                ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                            }`}
+                            title="Klik untuk ubah status"
+                          >
+                            {t.status}
+                          </button>
+                        </td>
+                        <td className="p-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => handleOpenTeacherModal(t)}
+                              className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                              title="Edit guru"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTeacher(t.id, t.name)}
+                              className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus guru"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
 
-          {/* Search bar */}
-          <div className="relative max-w-sm">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Cari nama guru atau NIP..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            {filteredTeachers.length === 0 && (
+              <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                <Users className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                <p className="font-semibold text-slate-600 text-sm">Tidak ditemukan data guru.</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Coba kata kunci pencarian lain atau tambahkan data guru baru.
+                </p>
+              </div>
+            )}
           </div>
-
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
-                <tr>
-                  <th className="p-3">No</th>
-                  <th className="p-3">Nama Lengkap Guru</th>
-                  <th className="p-3">NIP</th>
-                  <th className="p-3">L/P</th>
-                  <th className="p-3">Email</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3 text-center">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {teachers
-                  .filter((t) =>
-                    t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    t.nip.includes(searchQuery)
-                  )
-                  .map((t, idx) => (
-                    <tr key={t.id} className="hover:bg-slate-50">
-                      <td className="p-3 text-slate-400">{idx + 1}</td>
-                      <td className="p-3 font-bold text-slate-900">{t.name}</td>
-                      <td className="p-3 font-mono text-slate-600">{t.nip}</td>
-                      <td className="p-3 text-slate-600">{t.gender}</td>
-                      <td className="p-3 text-slate-500">{t.email || '-'}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                          {t.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => handleOpenTeacherModal(t)}
-                            className="p-1 text-slate-500 hover:text-blue-600 rounded transition-colors"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTeacher(t.id, t.name)}
-                            className="p-1 text-slate-500 hover:text-rose-600 rounded transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB CONTENT: KELOLA ADMIN PIKET (GURU PIKET) */}
       {adminTab === 'piket' && (
@@ -1576,6 +1967,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* Quick Actions */}
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setUniversalImportTarget('piket');
+                  setIsUniversalExcelModalOpen(true);
+                }}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                title="Unggah pembagian jadwal piket guru dari file Excel (.xlsx)"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Import Jadwal Piket (Excel)</span>
+              </button>
+
               <button
                 onClick={handleCopyAllPiketAccounts}
                 className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-2xs ${
@@ -1920,6 +2324,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <button
+                type="button"
+                onClick={() => {
+                  setUniversalImportTarget('classes');
+                  setIsUniversalExcelModalOpen(true);
+                }}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Import Excel (.xlsx)</span>
+              </button>
+              <button
                 onClick={() => {
                   setSelectedQRClassId(classes[0]?.id || '');
                   setIsClassQRModalOpen(true);
@@ -1991,13 +2406,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Kelola mata pelajaran kurikulum merdeka / reguler SMA NEGERI 1 JULOK.
               </p>
             </div>
-            <button
-              onClick={() => handleOpenSubjectModal()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              Tambah Mapel
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setUniversalImportTarget('subjects');
+                  setIsUniversalExcelModalOpen(true);
+                }}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Import Excel (.xlsx)</span>
+              </button>
+              <button
+                onClick={() => handleOpenSubjectModal()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Tambah Mapel
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -2088,6 +2516,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* Action Toolbar & Preset Shortcuts */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200">
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setUniversalImportTarget('timeslots');
+                  setIsUniversalExcelModalOpen(true);
+                }}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                title="Unggah susunan jam pelajaran dari file Excel (.xlsx)"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Import Excel (.xlsx)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleOpenTimeSlotModal()}
@@ -2391,149 +2832,401 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB CONTENT: 6. BULK IMPORT */}
+      {/* TAB CONTENT: 6. BULK IMPORT & PUSAT EXCEL IMPORT */}
       {adminTab === 'import' && (
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-5">
-          <div className="border-b border-slate-100 pb-4">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Upload className="w-4 h-4 text-blue-600" />
-              Pusat Import Data (Guru, Kelas, Mapel)
-            </h3>
-            <p className="text-xs text-slate-500">
-              Salin dan tempel (paste) data dari Excel / Spreadsheet untuk mengimpor banyak data sekaligus secara instan.
-            </p>
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                <span>Pusat Import Data Excel Resmi (.xlsx / .xls)</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Semua data master yang memerlukan input telah disediakan template resmi dan menu import Excel otomatis dengan validasi data real-time.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200">
+                6 Master Data Didukung
+              </span>
+            </div>
           </div>
 
           {importSuccessMsg && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800 flex items-center gap-2">
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800 flex items-center gap-2 animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>{importSuccessMsg}</span>
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: 'schedules', label: 'Import Jadwal Mengajar (Excel .xlsx)' },
-              { id: 'teachers', label: 'Import Data Guru' },
-              { id: 'classes', label: 'Import Data Kelas' },
-              { id: 'subjects', label: 'Import Mata Pelajaran' }
-            ].map((it) => (
-              <button
-                key={it.id}
-                onClick={() => {
-                  setImportType(it.id as typeof importType);
-                  setImportSuccessMsg(null);
-                }}
-                className={`px-3 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                  importType === it.id
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {it.label}
-              </button>
-            ))}
-          </div>
-
-          {importType === 'schedules' && (
-            <div className="p-5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-300 rounded-2xl space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                    <FileSpreadsheet className="w-6 h-6" />
+          {/* 6 INTERACTIVE EXCEL IMPORT CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Card 1: Data Master Guru */}
+            <div className="p-5 rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-emerald-50/40 hover:shadow-md transition-all flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                    <Users className="w-5 h-5" />
                   </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-emerald-950">
-                      Import File Excel Jadwal Mengajar (.xlsx / .xls)
-                    </h4>
-                    <p className="text-xs text-emerald-800">
-                      Unggah dokumen Excel jadwal resmi mingguan atau semester SMA NEGERI 1 JULOK.
-                    </p>
-                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Master Guru
+                  </span>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      downloadScheduleExcelTemplate(teachers, classes, subjects, timeSlots)
-                    }
-                    className="px-3 py-2 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                  >
-                    <Download className="w-3.5 h-3.5 text-emerald-700" />
-                    <span>Unduh Template Excel</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsScheduleExcelModalOpen(true)}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Buka Dialog Unggah Excel</span>
-                  </button>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">1. Data Master Guru</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Nama lengkap, NIP (18 digit), Jenis Kelamin (L/P), No HP, Email, dan Status Guru.
+                  </p>
+                </div>
+                <div className="text-[11px] font-semibold text-slate-600 bg-white/80 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                  <span>Saat ini tersimpan:</span>
+                  <span className="font-bold text-emerald-700 font-mono">{teachers.length} Guru</span>
                 </div>
               </div>
+              <div className="pt-4 mt-2 border-t border-emerald-100 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadTeachersExcelTemplate}
+                  className="flex-1 px-3 py-2 bg-white hover:bg-emerald-50 text-emerald-800 text-xs font-semibold rounded-xl border border-emerald-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Unduh format tabel Excel resmi untuk Data Guru"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUniversalImportTarget('teachers');
+                    setIsUniversalExcelModalOpen(true);
+                  }}
+                  className="flex-1 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import Excel</span>
+                </button>
+              </div>
             </div>
-          )}
 
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 space-y-1">
-            <strong>Format Baris (Pisahkan dengan koma atau Tab/Excel):</strong>
-            {importType === 'schedules' && (
-              <p className="font-mono text-[11px] text-slate-800 bg-white p-2 rounded border border-slate-200">
-                Hari, Nama Guru / NIP, Kelas, Mata Pelajaran, Jam Pelajaran, Ruang/Catatan<br />
-                Contoh:<br />
-                Senin, Ahmad Dahlan, S.Pd., X-1, Bahasa Indonesia, Jam 1-2, R.101<br />
-                Selasa, Siti Aminah, M.Pd., XI MIPA 1, Matematika Wajib, Jam 3-4, Lab Komputer
-              </p>
-            )}
-            {importType === 'teachers' && (
-              <p className="font-mono text-[11px] text-slate-800 bg-white p-2 rounded border border-slate-200">
-                Nama Guru, NIP, Jenis Kelamin(L/P), No HP, Email<br />
-                Contoh: <br />
-                Ahmad Dahlan, S.Pd., 19850101 200801 1 002, L, 08123456789, ahmad@sman1julok.sch.id<br />
-                Siti Aminah, M.Pd., 19890202 201101 2 004, P, 08129876543, siti@sman1julok.sch.id
-              </p>
-            )}
-            {importType === 'classes' && (
-              <p className="font-mono text-[11px] text-slate-800 bg-white p-2 rounded border border-slate-200">
-                Nama Kelas, Tingkat(X/XI/XII), Jurusan(MIPA/IPS/Umum)<br />
-                Contoh:<br />
-                X-4, X, Umum<br />
-                XI MIPA 3, XI, MIPA
-              </p>
-            )}
-            {importType === 'subjects' && (
-              <p className="font-mono text-[11px] text-slate-800 bg-white p-2 rounded border border-slate-200">
-                Nama Mapel, Kode Mapel, Kategori(Wajib/Peminatan)<br />
-                Contoh:<br />
-                Geografi, GEO, Peminatan<br />
-                Sosiologi, SOS, Peminatan
-              </p>
-            )}
+            {/* Card 2: Data Master Kelas */}
+            <div className="p-5 rounded-2xl border-2 border-blue-200 bg-gradient-to-br from-blue-50/70 via-white to-blue-50/40 hover:shadow-md transition-all flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                    <School className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                    Master Kelas
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">2. Data Master Ruang Kelas</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Nama ruang kelas (misal X-1, XI MIPA 1), Tingkat (X/XI/XII), dan Jurusan/Peminatan.
+                  </p>
+                </div>
+                <div className="text-[11px] font-semibold text-slate-600 bg-white/80 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                  <span>Saat ini tersimpan:</span>
+                  <span className="font-bold text-blue-700 font-mono">{classes.length} Kelas</span>
+                </div>
+              </div>
+              <div className="pt-4 mt-2 border-t border-blue-100 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadClassesExcelTemplate}
+                  className="flex-1 px-3 py-2 bg-white hover:bg-blue-50 text-blue-800 text-xs font-semibold rounded-xl border border-blue-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Unduh format tabel Excel resmi untuk Data Kelas"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUniversalImportTarget('classes');
+                    setIsUniversalExcelModalOpen(true);
+                  }}
+                  className="flex-1 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 3: Data Mata Pelajaran */}
+            <div className="p-5 rounded-2xl border-2 border-violet-200 bg-gradient-to-br from-violet-50/70 via-white to-violet-50/40 hover:shadow-md transition-all flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center shadow-xs">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200">
+                    Mata Pelajaran
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">3. Data Mata Pelajaran (Mapel)</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Kode Singkat (MTK, BIO), Nama Lengkap Mata Pelajaran, dan Kategori (Wajib/Peminatan/Mulok).
+                  </p>
+                </div>
+                <div className="text-[11px] font-semibold text-slate-600 bg-white/80 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                  <span>Saat ini tersimpan:</span>
+                  <span className="font-bold text-violet-700 font-mono">{subjects.length} Mapel</span>
+                </div>
+              </div>
+              <div className="pt-4 mt-2 border-t border-violet-100 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadSubjectsExcelTemplate}
+                  className="flex-1 px-3 py-2 bg-white hover:bg-violet-50 text-violet-800 text-xs font-semibold rounded-xl border border-violet-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Unduh format tabel Excel resmi untuk Mata Pelajaran"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUniversalImportTarget('subjects');
+                    setIsUniversalExcelModalOpen(true);
+                  }}
+                  className="flex-1 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 4: Jam Pelajaran (TimeSlots) */}
+            <div className="p-5 rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/40 hover:shadow-md transition-all flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                    Jam Pelajaran (JP)
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">4. Master Jam Pelajaran (Sesi)</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Nama/Label Jam (Jam 1, Jam 2, dst.), Jam Mulai (07:30), Jam Selesai (08:15), dan Format Rentang.
+                  </p>
+                </div>
+                <div className="text-[11px] font-semibold text-slate-600 bg-white/80 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                  <span>Saat ini tersimpan:</span>
+                  <span className="font-bold text-amber-700 font-mono">{timeSlots.length} JP</span>
+                </div>
+              </div>
+              <div className="pt-4 mt-2 border-t border-amber-100 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadTimeSlotsExcelTemplate}
+                  className="flex-1 px-3 py-2 bg-white hover:bg-amber-50 text-amber-900 text-xs font-semibold rounded-xl border border-amber-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Unduh format tabel Excel resmi untuk Jam Pelajaran"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUniversalImportTarget('timeslots');
+                    setIsUniversalExcelModalOpen(true);
+                  }}
+                  className="flex-1 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 5: Jadwal Mengajar Guru */}
+            <div className="p-5 rounded-2xl border-2 border-teal-200 bg-gradient-to-br from-teal-50/70 via-white to-teal-50/40 hover:shadow-md transition-all flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-xs">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200">
+                    Jadwal Mengajar
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">5. Jadwal Mengajar Mingguan</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Mendukung jam tunggal atau gabungan (Jam 1, Jam 1-2, Jam 3-4), Hari, Guru, Kelas, Mapel, & Ruang.
+                  </p>
+                </div>
+                <div className="text-[11px] font-semibold text-slate-600 bg-white/80 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                  <span>Saat ini tersimpan:</span>
+                  <span className="font-bold text-teal-700 font-mono">{schedules.length} Jadwal</span>
+                </div>
+              </div>
+              <div className="pt-4 mt-2 border-t border-teal-100 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadScheduleExcelTemplate(teachers, classes, subjects, timeSlots)}
+                  className="flex-1 px-3 py-2 bg-white hover:bg-teal-50 text-teal-900 text-xs font-semibold rounded-xl border border-teal-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Unduh format tabel Excel resmi untuk Jadwal Mengajar"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsScheduleExcelModalOpen(true)}
+                  className="flex-1 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 6: Jadwal & Akun Guru Piket */}
+            <div className="p-5 rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50/70 via-white to-indigo-50/40 hover:shadow-md transition-all flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                    <UserCheck className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                    Jadwal Piket
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">6. Jadwal &amp; Akun Guru Piket</h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Pembagian hari tugas piket (Senin-Sabtu), username login otomatis/kustom, password, & catatan.
+                  </p>
+                </div>
+                <div className="text-[11px] font-semibold text-slate-600 bg-white/80 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                  <span>Saat ini tersimpan:</span>
+                  <span className="font-bold text-indigo-700 font-mono">{piketAccounts.length} Akun</span>
+                </div>
+              </div>
+              <div className="pt-4 mt-2 border-t border-indigo-100 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadPiketExcelTemplate(teachers)}
+                  className="flex-1 px-3 py-2 bg-white hover:bg-indigo-50 text-indigo-900 text-xs font-semibold rounded-xl border border-indigo-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Unduh format tabel Excel resmi untuk Jadwal Guru Piket"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUniversalImportTarget('piket');
+                    setIsUniversalExcelModalOpen(true);
+                  }}
+                  className="flex-1 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Import Excel</span>
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Tempel / Paste Teks Data Disini:
-            </label>
-            <textarea
-              rows={6}
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder="Paste data dari Excel atau CSV di sini..."
-              className="w-full p-3 font-mono text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          {/* SECONDARY / COLLAPSIBLE: METODE SALIN TEMPEL TEKS (KLASIK) */}
+          <div className="mt-8 pt-6 border-t border-slate-200">
+            <details className="group bg-slate-50 rounded-2xl border border-slate-200 p-4 transition-all">
+              <summary className="font-bold text-xs text-slate-700 cursor-pointer flex items-center justify-between list-none select-none">
+                <span className="flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-slate-500" />
+                  Opsi Alternatif: Salin &amp; Tempel (Paste) Teks Manual
+                </span>
+                <span className="text-[11px] text-blue-600 group-open:rotate-180 transition-transform">
+                  ▼
+                </span>
+              </summary>
 
-          <button
-            onClick={handleProcessImport}
-            disabled={!importText.trim()}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center gap-2"
-          >
-            <Upload className="w-4 h-4" />
-            Proses & Tambahkan ke Database
-          </button>
+              <div className="mt-4 pt-4 border-t border-slate-200/80 space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: 'schedules', label: 'Teks Jadwal Mengajar' },
+                    { id: 'teachers', label: 'Teks Data Guru' },
+                    { id: 'classes', label: 'Teks Data Kelas' },
+                    { id: 'subjects', label: 'Teks Mata Pelajaran' }
+                  ].map((it) => (
+                    <button
+                      key={it.id}
+                      type="button"
+                      onClick={() => {
+                        setImportType(it.id as typeof importType);
+                        setImportSuccessMsg(null);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                        importType === it.id
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
+                      }`}
+                    >
+                      {it.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-600 space-y-1">
+                  <strong>Format Baris (Pisahkan dengan koma atau Tab/Excel):</strong>
+                  {importType === 'schedules' && (
+                    <p className="font-mono text-[11px] text-slate-800 bg-slate-50 p-2 rounded border border-slate-200">
+                      Hari, Nama Guru / NIP, Kelas, Mata Pelajaran, Jam Pelajaran, Ruang/Catatan<br />
+                      Contoh: Senin, Ahmad Dahlan, S.Pd., X-1, Bahasa Indonesia, Jam 1-2, R.101
+                    </p>
+                  )}
+                  {importType === 'teachers' && (
+                    <p className="font-mono text-[11px] text-slate-800 bg-slate-50 p-2 rounded border border-slate-200">
+                      Nama Guru, NIP, Jenis Kelamin(L/P), No HP, Email<br />
+                      Contoh: Ahmad Dahlan, S.Pd., 19850101 200801 1 002, L, 08123456789, ahmad@sman1julok.sch.id
+                    </p>
+                  )}
+                  {importType === 'classes' && (
+                    <p className="font-mono text-[11px] text-slate-800 bg-slate-50 p-2 rounded border border-slate-200">
+                      Nama Kelas, Tingkat(X/XI/XII), Jurusan(MIPA/IPS/Umum)<br />
+                      Contoh: X-4, X, Umum
+                    </p>
+                  )}
+                  {importType === 'subjects' && (
+                    <p className="font-mono text-[11px] text-slate-800 bg-slate-50 p-2 rounded border border-slate-200">
+                      Nama Mapel, Kode Mapel, Kategori(Wajib/Peminatan)<br />
+                      Contoh: Geografi, GEO, Peminatan
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Tempelkan Baris Teks:
+                  </label>
+                  <textarea
+                    rows={5}
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    placeholder="Tempel baris teks di sini..."
+                    className="w-full p-3 font-mono text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleProcessImport}
+                  disabled={!importText.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Proses &amp; Simpan Baris Teks</span>
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
       )}
 
@@ -2930,6 +3623,473 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* TAB CONTENT: FITUR SELFIE OTOMATIS SENYUM & REKAP WAJAH GURU */}
+      {adminTab === 'face-smile' && (
+        <div className="space-y-6">
+          {/* Header & Status Toast */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 shadow-inner">
+                <Smile className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-900">
+                    Pengaturan Selfie Senyum Otomatis &amp; Perekaman Wajah Mandiri Guru
+                  </h3>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                      smileForm.enabled
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-slate-100 text-slate-700 border border-slate-300'
+                    }`}
+                  >
+                    Fitur: {smileForm.enabled ? 'AKTIF' : 'NONAKTIF'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+                  Fitur ini optional: Anda dapat mengaktifkan atau menonaktifkannya kapan saja. Setiap guru dapat melakukan <strong>perekaman wajah dan kalibrasi senyum mandiri</strong> dalam 30 detik agar kamera presensi memotret otomatis tanpa sentuh layar.
+                </p>
+              </div>
+            </div>
+
+            {smileSavedToast && (
+              <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in self-start md:self-auto">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>{smileSavedToast}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Form Konfigurasi Fitur */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (onSaveSmileConfig) {
+                onSaveSmileConfig(smileForm);
+              }
+              setSmileSavedToast('Pengaturan Selfie Otomatis Berhasil Disimpan!');
+              setTimeout(() => setSmileSavedToast(null), 3500);
+            }}
+            className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-6 space-y-6"
+          >
+            <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+              <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-blue-600" />
+                Konfigurasi Mode Selfie Otomatis (Optional)
+              </h4>
+              <span className="text-xs text-slate-400">Pengaturan Administrator</span>
+            </div>
+
+            {/* Toggle 1: Aktifkan Fitur Selfie Otomatis Senyum */}
+            <div className={`p-4 rounded-2xl border transition-all ${
+              smileForm.enabled ? 'bg-emerald-50/70 border-emerald-200' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <label className="flex items-start gap-3.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={smileForm.enabled}
+                  onChange={(e) => setSmileForm({ ...smileForm, enabled: e.target.checked })}
+                  className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-900">
+                      Aktifkan Fitur Selfie Otomatis dengan Wajah Senyum
+                    </span>
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                      smileForm.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-700'
+                    }`}>
+                      {smileForm.enabled ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Bila opsi ini diaktifkan, kamera presensi kelas akan mendeteksi ekspresi wajah guru. Begitu guru tersenyum ramah di depan kamera, sistem akan menampilkan hitung mundur dan otomatis mengambil foto selfie tanpa harus menyentuh tombol di layar.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Grid Settings: Hitung Mundur, Sensitivitas, Efek Suara */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-1">
+              {/* Hitung Mundur Otomatis */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  Durasi Hitung Mundur Otomatis:
+                </label>
+                <select
+                  value={smileForm.autoCaptureCountdown}
+                  onChange={(e) => setSmileForm({ ...smileForm, autoCaptureCountdown: parseInt(e.target.value, 10) })}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value={0}>0 Detik (Langsung Jepret seketika senyum)</option>
+                  <option value={1}>1 Detik (Hitung Cepat)</option>
+                  <option value={2}>2 Detik (Rekomendasi - Waktu Bersiap)</option>
+                  <option value={3}>3 Detik (Santai)</option>
+                </select>
+                <p className="text-[11px] text-slate-500">
+                  Waktu jeda hitung mundur sejak senyuman terdeteksi hingga foto terambil secara otomatis.
+                </p>
+              </div>
+
+              {/* Sensitivitas Senyuman */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  Kepekaan / Sensitivitas Deteksi Senyum:
+                </label>
+                <select
+                  value={smileForm.sensitivity}
+                  onChange={(e) => setSmileForm({ ...smileForm, sensitivity: e.target.value as typeof smileForm.sensitivity })}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="LOW">Rendah (Harus senyum cukup lebar)</option>
+                  <option value="MEDIUM">Sedang (Rekomendasi - Senyum alami normal)</option>
+                  <option value="HIGH">Tinggi (Sangat peka - Senyum tipis terdeteksi)</option>
+                </select>
+                <p className="text-[11px] text-slate-500">
+                  Tingkat kemudahan algoritma mengenali senyuman wajah guru di kamera.
+                </p>
+              </div>
+
+              {/* Suara Shutter & Wajibkan Rekam */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={smileForm.soundEffect}
+                      onChange={(e) => setSmileForm({ ...smileForm, soundEffect: e.target.checked })}
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    />
+                    <span>Efek Suara Shutter Kamera</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500 pl-6 mt-0.5">
+                    Memutar suara &quot;klik&quot; kamera saat foto selfie otomatis terambil.
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200/60">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={smileForm.requireFaceEnrollment}
+                      onChange={(e) => setSmileForm({ ...smileForm, requireFaceEnrollment: e.target.checked })}
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    />
+                    <span>Wajibkan Rekam Wajah Sebelum Absen</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500 pl-6 mt-0.5">
+                    Jika dicentang, guru wajib merekam profil wajah mandiri sebelum dapat mengirimkan absensi.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Submit button */}
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <button
+                type="submit"
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>Simpan Konfigurasi Selfie &amp; Wajah</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Section: Rekapitulasi Perekaman Mandiri Profil Wajah Guru */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-blue-600" />
+                  Rekapitulasi Perekaman Wajah Mandiri Guru
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Daftar guru SMA Negeri 1 Julok yang telah melakukan perekaman wajah dan kalibrasi senyum secara mandiri.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEnrollmentTeacherId(teachers[0]?.id || '');
+                  setIsEnrollmentModalOpen(true);
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-auto active:scale-95"
+              >
+                <Smile className="w-4 h-4 text-amber-300" />
+                <span>Buka Perekaman Wajah Guru</span>
+              </button>
+            </div>
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-[11px] text-slate-500 font-semibold uppercase block">Total Guru</span>
+                <span className="text-xl font-black text-slate-900 block mt-0.5">{teachers.length}</span>
+                <span className="text-[10px] text-slate-400">Guru Terdaftar</span>
+              </div>
+
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <span className="text-[11px] text-emerald-800 font-semibold uppercase block">Sudah Rekam</span>
+                <span className="text-xl font-black text-emerald-700 block mt-0.5">{faceProfiles.length}</span>
+                <span className="text-[10px] text-emerald-600">Profil Aktif &amp; Terkalibrasi</span>
+              </div>
+
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <span className="text-[11px] text-amber-800 font-semibold uppercase block">Belum Rekam</span>
+                <span className="text-xl font-black text-amber-700 block mt-0.5">
+                  {Math.max(0, teachers.length - faceProfiles.length)}
+                </span>
+                <span className="text-[10px] text-amber-600">Perlu Perekaman Mandiri</span>
+              </div>
+
+              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl">
+                <span className="text-[11px] text-blue-800 font-semibold uppercase block">% Kelengkapan</span>
+                <span className="text-xl font-black text-blue-700 block mt-0.5">
+                  {teachers.length > 0 ? Math.round((faceProfiles.length / teachers.length) * 100) : 0}%
+                </span>
+                <span className="text-[10px] text-blue-600">Cakupan Profil Wajah</span>
+              </div>
+            </div>
+
+            {/* Search and Filters */}
+            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari nama guru atau NIP..."
+                  value={faceSearch}
+                  onChange={(e) => setFaceSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 font-medium"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+                {(['ALL', 'ENROLLED', 'NOT_ENROLLED'] as const).map((filter) => {
+                  const labels = {
+                    ALL: `Semua (${teachers.length})`,
+                    ENROLLED: `Sudah Rekam (${faceProfiles.length})`,
+                    NOT_ENROLLED: `Belum Rekam (${Math.max(0, teachers.length - faceProfiles.length)})`
+                  };
+                  return (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setFaceStatusFilter(filter)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                        faceStatusFilter === filter
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {labels[filter]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Table of Teachers Face Status */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="p-3 text-center w-12">No</th>
+                    <th className="p-3">Nama Lengkap Guru</th>
+                    <th className="p-3">NIP</th>
+                    <th className="p-3 text-center">Status Rekam</th>
+                    <th className="p-3 text-center">Wajah Netral</th>
+                    <th className="p-3 text-center">Wajah Senyum</th>
+                    <th className="p-3 text-center">Tanggal Rekam</th>
+                    <th className="p-3 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {teachers
+                    .filter((t) => {
+                      if (faceSearch.trim()) {
+                        const q = faceSearch.toLowerCase();
+                        if (!t.name.toLowerCase().includes(q) && !t.nip.includes(q)) return false;
+                      }
+                      const hasProfile = faceProfiles.some((p) => p.teacherId === t.id && p.status === 'ACTIVE');
+                      if (faceStatusFilter === 'ENROLLED' && !hasProfile) return false;
+                      if (faceStatusFilter === 'NOT_ENROLLED' && hasProfile) return false;
+                      return true;
+                    })
+                    .map((teacher, idx) => {
+                      const profile = faceProfiles.find((p) => p.teacherId === teacher.id && p.status === 'ACTIVE');
+                      return (
+                        <tr key={teacher.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-3 text-center font-mono text-slate-400">{idx + 1}</td>
+                          <td className="p-3 font-bold text-slate-900">{teacher.name}</td>
+                          <td className="p-3 font-mono text-slate-500">{teacher.nip || '-'}</td>
+                          <td className="p-3 text-center">
+                            {profile ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>Sudah Rekam Mandiri</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-300">
+                                <span>Belum Rekam</span>
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Foto Netral */}
+                          <td className="p-3 text-center">
+                            {profile?.neutralPhotoUrl ? (
+                              <div
+                                onClick={() =>
+                                  setSelectedPhotoPreview({
+                                    url: profile.neutralPhotoUrl,
+                                    title: 'Wajah Netral',
+                                    teacherName: teacher.name
+                                  })
+                                }
+                                className="w-10 h-10 mx-auto rounded-lg overflow-hidden border border-slate-300 hover:border-blue-500 cursor-pointer shadow-2xs hover:scale-105 transition-all"
+                                title="Klik untuk memperbesar"
+                              >
+                                <img
+                                  src={profile.neutralPhotoUrl}
+                                  alt="Wajah Netral"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">-</span>
+                            )}
+                          </td>
+
+                          {/* Foto Senyum */}
+                          <td className="p-3 text-center">
+                            {profile?.smilePhotoUrl ? (
+                              <div
+                                onClick={() =>
+                                  setSelectedPhotoPreview({
+                                    url: profile.smilePhotoUrl,
+                                    title: 'Wajah Senyum',
+                                    teacherName: teacher.name
+                                  })
+                                }
+                                className="w-10 h-10 mx-auto rounded-lg overflow-hidden border-2 border-amber-400 hover:border-blue-500 cursor-pointer shadow-2xs hover:scale-105 transition-all"
+                                title="Klik untuk memperbesar"
+                              >
+                                <img
+                                  src={profile.smilePhotoUrl}
+                                  alt="Wajah Senyum"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">-</span>
+                            )}
+                          </td>
+
+                          {/* Tanggal Rekam */}
+                          <td className="p-3 text-center font-mono text-[11px] text-slate-500">
+                            {profile?.enrolledAt ? new Date(profile.enrolledAt).toLocaleDateString('id-ID') : '-'}
+                          </td>
+
+                          {/* Aksi */}
+                          <td className="p-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEnrollmentTeacherId(teacher.id);
+                                  setIsEnrollmentModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                              >
+                                {profile ? 'Rekam Ulang' : 'Mulai Rekam'}
+                              </button>
+
+                              {profile && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Hapus data profil wajah & kalibrasi senyum mandiri untuk ${teacher.name}? Guru dapat merekam ulang kapan saja.`)) {
+                                      if (onDeleteFaceProfile) {
+                                        onDeleteFaceProfile(teacher.id);
+                                      }
+                                    }
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Hapus / Reset profil wajah guru ini"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PEREKAMAN WAJAH GURU (DIBUKA DARI ADMIN) */}
+      <TeacherFaceEnrollmentModal
+        isOpen={isEnrollmentModalOpen}
+        onClose={() => setIsEnrollmentModalOpen(false)}
+        teachers={teachers}
+        initialTeacherId={enrollmentTeacherId}
+        existingProfile={faceProfiles.find((p) => p.teacherId === enrollmentTeacherId && p.status === 'ACTIVE')}
+        onSaveProfile={(profile) => {
+          if (onSaveFaceProfile) {
+            onSaveFaceProfile(profile);
+          }
+          setIsEnrollmentModalOpen(false);
+          setSmileSavedToast(`Profil wajah ${profile.teacherName} berhasil disimpan!`);
+          setTimeout(() => setSmileSavedToast(null), 3500);
+        }}
+      />
+
+      {/* MODAL: PRATINJAU FOTO PROFIL WAJAH */}
+      {selectedPhotoPreview && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full overflow-hidden shadow-2xl border border-slate-200">
+            <div className="bg-slate-900 p-3.5 text-white flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold">{selectedPhotoPreview.title}</h4>
+                <p className="text-[11px] text-slate-300">{selectedPhotoPreview.teacherName}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPhotoPreview(null)}
+                className="p-1 hover:bg-white/20 rounded-lg text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 bg-slate-950 flex items-center justify-center">
+              <img
+                src={selectedPhotoPreview.url}
+                alt={selectedPhotoPreview.title}
+                className="max-h-80 max-w-full rounded-xl object-contain border border-slate-700"
+              />
+            </div>
+            <div className="p-3 bg-slate-50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedPhotoPreview(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 rounded-lg"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {adminTab === 'reports' && (
@@ -4063,6 +5223,241 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         timeSlots={timeSlots}
         onImportSchedules={handleImportSchedulesFromExcel}
       />
+
+      {/* Universal Excel Import Modal (Guru, Kelas, Mapel, Jam Pelajaran, Piket) */}
+      <UniversalExcelImportModal
+        isOpen={isUniversalExcelModalOpen}
+        onClose={() => setIsUniversalExcelModalOpen(false)}
+        initialTarget={universalImportTarget}
+        teachers={teachers}
+        classes={classes}
+        subjects={subjects}
+        timeSlots={timeSlots}
+        piketAccounts={piketAccounts}
+        onImportTeachers={handleUniversalImportTeachers}
+        onImportClasses={handleUniversalImportClasses}
+        onImportSubjects={handleUniversalImportSubjects}
+        onImportTimeSlots={handleUniversalImportTimeSlots}
+        onImportPiket={handleUniversalImportPiket}
+      />
+
+      {/* MODAL: EDIT MASSAL GURU (PILIH BEBERAPA ATAU SEMUA) */}
+      {isBulkEditTeacherModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
+                  <UserCog className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white">Edit Massal Data Guru</h3>
+                  <p className="text-xs text-blue-200">
+                    Pilih beberapa atau seluruh guru untuk memperbarui status atau atribut data secara bersamaan.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkEditTeacherModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-5 overflow-y-auto flex-1">
+              {/* Selection Controls & Quick Select Buttons */}
+              <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-xs text-slate-800">
+                      Target Guru yang Diedit:
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 font-mono">
+                      {selectedTeacherIds.size} / {teachers.length} Guru Dipilih
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllTotalTeachers}
+                      className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    >
+                      Pilih Semua ({teachers.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const activeIds = teachers.filter((t) => t.status === 'Aktif').map((t) => t.id);
+                        setSelectedTeacherIds(new Set(activeIds));
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    >
+                      Hanya Aktif
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const inactiveIds = teachers.filter((t) => t.status !== 'Aktif').map((t) => t.id);
+                        setSelectedTeacherIds(new Set(inactiveIds));
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-amber-700 bg-white hover:bg-amber-50 border border-amber-200 rounded-lg shadow-2xs transition-all cursor-pointer"
+                    >
+                      Hanya Nonaktif
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearSelectedTeachers}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-lg transition-all cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter within modal */}
+                <div className="relative pt-1">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3.5" />
+                  <input
+                    type="text"
+                    placeholder="Saring daftar guru di bawah berdasarkan nama atau NIP..."
+                    value={bulkTeacherSearch}
+                    onChange={(e) => setBulkTeacherSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* Checklist list */}
+                <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-xl bg-white divide-y divide-slate-100">
+                  {teachers
+                    .filter((t) =>
+                      t.name.toLowerCase().includes(bulkTeacherSearch.toLowerCase()) ||
+                      t.nip.includes(bulkTeacherSearch)
+                    )
+                    .map((t) => {
+                      const isChecked = selectedTeacherIds.has(t.id);
+                      return (
+                        <label
+                          key={t.id}
+                          className={`flex items-center justify-between p-2.5 text-xs cursor-pointer transition-colors ${
+                            isChecked ? 'bg-blue-50/70' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => handleToggleSelectTeacher(t.id)}
+                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div>
+                              <span className="font-bold text-slate-900 block">{t.name}</span>
+                              <span className="text-[11px] font-mono text-slate-400">NIP: {t.nip}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                              {t.gender}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                t.status === 'Aktif'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              {t.status}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Form Options to Apply */}
+              <form onSubmit={handleExecuteBulkEditTeachers} id="bulk-teacher-form" className="space-y-4">
+                <div className="p-4 rounded-2xl border border-indigo-100 bg-indigo-50/30 space-y-4">
+                  <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wider">
+                    Perubahan yang Akan Diterapkan ke Guru Terpilih:
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Status Change */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Ubah Status Ke:
+                      </label>
+                      <select
+                        value={bulkEditTeacherStatus}
+                        onChange={(e) => setBulkEditTeacherStatus(e.target.value as typeof bulkEditTeacherStatus)}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                      >
+                        <option value="KEEP">-- Jangan Ubah Status (Biarkan Tetap) --</option>
+                        <option value="Aktif">Set Aktif (Dapat Melakukan Absensi)</option>
+                        <option value="Nonaktif">Set Nonaktif (Absensi Dinonaktifkan)</option>
+                      </select>
+                      <span className="text-[11px] text-slate-400 mt-1 block">
+                        Pilih untuk mengubah status seluruh guru terpilih serentak.
+                      </span>
+                    </div>
+
+                    {/* Gender Change */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Ubah Jenis Kelamin Ke:
+                      </label>
+                      <select
+                        value={bulkEditTeacherGender}
+                        onChange={(e) => setBulkEditTeacherGender(e.target.value as typeof bulkEditTeacherGender)}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                      >
+                        <option value="KEEP">-- Jangan Ubah Jenis Kelamin (Tetap) --</option>
+                        <option value="L">Laki-Laki (L)</option>
+                        <option value="P">Perempuan (P)</option>
+                      </select>
+                      <span className="text-[11px] text-slate-400 mt-1 block">
+                        Pilih jika ingin menyeragamkan atau mengoreksi data jenis kelamin.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <span className="text-xs font-semibold text-slate-600">
+                {selectedTeacherIds.size === 0
+                  ? '⚠️ Pilih minimal 1 guru untuk menerapkan perubahan.'
+                  : `Akan memperbarui ${selectedTeacherIds.size} guru terpilih.`}
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkEditTeacherModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  form="bulk-teacher-form"
+                  disabled={selectedTeacherIds.size === 0 || (bulkEditTeacherStatus === 'KEEP' && bulkEditTeacherGender === 'KEEP')}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Terapkan ke {selectedTeacherIds.size} Guru</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -95,10 +95,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>PEMERINTAH ACEH • DINAS PENDIDIKAN • CABDIN ACEH TIMUR</span>
             {databaseMode === 'direct' ? (
               <div className="flex items-center gap-1.5 ml-2">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/25 text-emerald-300 border border-emerald-400/40">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                  isCloudSynced
+                    ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/40'
+                    : 'bg-blue-500/25 text-blue-300 border-blue-400/40'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCloudSynced ? 'bg-emerald-400 animate-pulse' : 'bg-blue-400'}`}></span>
                   <Database className="w-3 h-3 text-emerald-400 inline" />
-                  <span>Database Langsung (Lokal Aktif)</span>
+                  <span>{isCloudSynced ? 'Real-Time (HP & PC Terhubung)' : 'Sinkron Otomatis Multi-Perangkat'}</span>
                 </span>
                 {onExportBackup && (
                   <button

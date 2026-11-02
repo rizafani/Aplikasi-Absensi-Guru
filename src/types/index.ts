@@ -114,3 +114,35 @@ export interface SchoolLogos {
   acehLogo: string;
   schoolLogo?: string;
 }
+
+export interface TeacherFaceProfile {
+  teacherId: string;
+  teacherName: string;
+  nip: string;
+  enrolledAt: string; // ISO date string
+  neutralPhotoUrl: string; // base64 thumbnail of neutral face
+  smilePhotoUrl: string; // base64 thumbnail of smiling face
+  neutralMouthRatio?: number;
+  smileMouthRatio?: number;
+  skinToneAverage?: { r: number; g: number; b: number };
+  status: 'ACTIVE' | 'INACTIVE';
+  updatedAt?: string;
+}
+
+export type SmileSensitivity = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export interface SmileCaptureConfig {
+  enabled: boolean; // Fitur aktif atau tidak (bisa diatur admin)
+  autoCaptureCountdown: number; // Durasi hitung mundur (detik): 1, 2, atau 3
+  sensitivity: SmileSensitivity; // Kepekaan deteksi senyuman: LOW, MEDIUM, HIGH
+  requireFaceEnrollment: boolean; // Wajibkan rekam wajah sebelum presensi mandiri (opsional)
+  soundEffect: boolean; // Putar efek suara kamera shutter saat foto terambil
+}
+
+export const DEFAULT_SMILE_CAPTURE_CONFIG: SmileCaptureConfig = {
+  enabled: true,
+  autoCaptureCountdown: 2,
+  sensitivity: 'MEDIUM',
+  requireFaceEnrollment: false,
+  soundEffect: true,
+};
