@@ -14,10 +14,7 @@ import {
   SmileCaptureConfig
 } from './types';
 import { Storage } from './utils/storage';
-import { INITIAL_TIME_SLOTS } from './data/initialData';
 import { syncPiketAccountsWithTeachers } from './utils/piketAuth';
-import { FirestoreService } from './services/firestoreService';
-import { testFirestoreConnection, isQuotaExceededError } from './firebase';
 import { CentralSync } from './services/centralSyncService';
 import { Navbar } from './components/Navbar';
 import { SelfAttendance } from './components/SelfAttendance';
@@ -58,11 +55,6 @@ export default function App() {
   const [faceProfiles, setFaceProfiles] = useState<TeacherFaceProfile[]>(() =>
     Storage.getFaceProfiles()
   );
-  // Database Mode: 'direct' (Lokal Standalone) or 'cloud' (Google Cloud Firestore)
-  // Sesuai permintaan pengguna: mode langsung tanpa singkron cloud
-  const [databaseMode, setDatabaseMode] = useState<'direct' | 'cloud'>(() => Storage.getDatabaseMode());
-  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
-  const [isManualSyncing, setIsManualSyncing] = useState<boolean>(false);
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
 
   // Default active tab is 'self-attendance' (Halaman awal guru presensi mandiri tanpa login)
@@ -97,164 +89,25 @@ export default function App() {
   }, [teachers]);
 
   // CENTRAL MULTI-DEVICE REAL-TIME SYNCHRONIZATION
-  // Connects all devices (HP guru, laptop admin, tablet piket) in real-time
   useEffect(() => {
     const unsubscribe = CentralSync.initRealTimeSync((db) => {
       if (Array.isArray(db.teachers)) setTeachers(db.teachers);
       if (Array.isArray(db.classes)) setClasses(db.classes);
       if (Array.isArray(db.subjects)) setSubjects(db.subjects);
-      if (Array.isArray(db.timeSlots) && db.timeSlots.length > 0) setTimeSlots(db.timeSlots);
+      if (Array.isArray(db.timeSlots)) setTimeSlots(db.timeSlots);
       if (Array.isArray(db.schedules)) setSchedules(db.schedules);
       if (Array.isArray(db.attendance)) setAttendanceRecords(db.attendance);
-      if (Array.isArray(db.piketAccounts) && db.piketAccounts.length > 0) setPiketAccounts(db.piketAccounts);
+      if (Array.isArray(db.piketAccounts)) setPiketAccounts(db.piketAccounts);
       if (db.locationConfig) setLocationConfig(db.locationConfig);
       if (db.logos) setLogos(db.logos);
       if (db.smileCaptureConfig) setSmileConfig(db.smileCaptureConfig);
       if (Array.isArray(db.faceProfiles)) setFaceProfiles(db.faceProfiles);
     });
 
-    const unsubStatus = CentralSync.onConnectionStatus((connected) => {
-      setIsCloudSynced(connected);
-    });
-
     return () => {
       unsubscribe();
-      unsubStatus();
     };
   }, []);
-
-  // REAL-TIME FIRESTORE DATABASE LISTENER (Only subscribes when databaseMode === 'cloud')
-  useEffect(() => {
-    if (databaseMode !== 'cloud') {
-      return;
-    }
-
-    testFirestoreConnection();
-
-    const unsubscribe = FirestoreService.subscribeToAll({
-      onTeachers: (data) => {
-        setTeachers((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-          Storage.saveTeachers(data);
-          return data;
-        });
-      },
-      onClasses: (data) => {
-        setClasses((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-          Storage.saveClasses(data);
-          return data;
-        });
-      },
-      onSubjects: (data) => {
-        setSubjects((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-          Storage.saveSubjects(data);
-          return data;
-        });
-      },
-      onTimeSlots: (data) => {
-        if (data.length > 0) {
-          setTimeSlots((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-            Storage.saveTimeSlots(data);
-            return data;
-          });
-        }
-      },
-      onSchedules: (data) => {
-        setSchedules((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-          Storage.saveSchedules(data);
-          return data;
-        });
-      },
-      onAttendance: (data) => {
-        setAttendanceRecords((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-          Storage.saveAttendance(data);
-          return data;
-        });
-      },
-      onPiketAccounts: (data) => {
-        if (data && data.length > 0) {
-          setPiketAccounts((prev) => {
-            const synced = syncPiketAccountsWithTeachers(teachersRef.current, data);
-            const isSame =
-              prev.length === synced.length &&
-              prev.every(
-                (p, i) =>
-                  p.id === synced[i]?.id &&
-                  p.username === synced[i]?.username &&
-                  p.password === synced[i]?.password &&
-                  p.isActive === synced[i]?.isActive &&
-                  p.teacherName === synced[i]?.teacherName &&
-                  p.nip === synced[i]?.nip &&
-                  JSON.stringify(p.assignedDays) === JSON.stringify(synced[i]?.assignedDays)
-              );
-            if (isSame) return prev;
-            Storage.savePiketAccounts(synced);
-            return synced;
-          });
-        }
-      },
-      onLocationConfig: (config) => {
-        if (config) {
-          setLocationConfig(config);
-          Storage.saveLocationConfig(config);
-        }
-      },
-      onSyncStatus: (status) => {
-        setIsCloudSynced(status);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [databaseMode]);
-
-  // Manual trigger to force reload directly from Central Database or Cloud Firestore
-  const handleManualSync = async () => {
-    setIsManualSyncing(true);
-    try {
-      const fresh = await CentralSync.fetchFullDatabase();
-      if (fresh) {
-        if (Array.isArray(fresh.teachers)) setTeachers(fresh.teachers);
-        if (Array.isArray(fresh.classes)) setClasses(fresh.classes);
-        if (Array.isArray(fresh.subjects)) setSubjects(fresh.subjects);
-        if (Array.isArray(fresh.timeSlots)) setTimeSlots(fresh.timeSlots);
-        if (Array.isArray(fresh.schedules)) setSchedules(fresh.schedules);
-        if (Array.isArray(fresh.attendance)) setAttendanceRecords(fresh.attendance);
-        if (Array.isArray(fresh.piketAccounts)) setPiketAccounts(fresh.piketAccounts);
-        if (fresh.locationConfig) setLocationConfig(fresh.locationConfig);
-        if (fresh.logos) setLogos(fresh.logos);
-        if (fresh.smileCaptureConfig) setSmileConfig(fresh.smileCaptureConfig);
-        if (Array.isArray(fresh.faceProfiles)) setFaceProfiles(fresh.faceProfiles);
-        setIsCloudSynced(true);
-        setSyncToastMessage('Sinkronisasi Sukses: Seluruh data terbaru berhasil dimuat & tersinkron di semua perangkat!');
-      } else {
-        // Fallback to local storage
-        setTeachers(Storage.getTeachers());
-        setClasses(Storage.getClasses());
-        setSubjects(Storage.getSubjects());
-        setTimeSlots(Storage.getTimeSlots());
-        setSchedules(Storage.getSchedules());
-        setAttendanceRecords(Storage.getAttendance());
-        setPiketAccounts(Storage.getPiketAccounts());
-        setLocationConfig(Storage.getLocationConfig());
-        setSmileConfig(Storage.getSmileCaptureConfig());
-        setFaceProfiles(Storage.getFaceProfiles());
-        setSyncToastMessage('Data lokal berhasil dimuat ulang!');
-      }
-    } catch (err) {
-      console.error('Manual sync failed:', err);
-      setSyncToastMessage('Sinkronisasi selesai.');
-    } finally {
-      setIsManualSyncing(false);
-      setTimeout(() => setSyncToastMessage(null), 4000);
-    }
-  };
 
   // Full Database Backup & Restore Handlers
   const handleExportBackup = () => {
@@ -268,7 +121,7 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
     setSyncToastMessage('Cadangan seluruh database berhasil diunduh ke komputer!');
-    setTimeout(() => setSyncToastMessage(null), 4000);
+    setTimeout(() => setSyncToastMessage(null), 3000);
   };
 
   const handleRestoreBackup = (jsonString: string) => {
@@ -278,7 +131,7 @@ export default function App() {
         const parsed = JSON.parse(jsonString);
         CentralSync.syncFullDatabase(parsed).catch(() => {});
       } catch {
-        // ignore parse error for server sync
+        // ignore parse error
       }
       setTeachers(Storage.getTeachers());
       setClasses(Storage.getClasses());
@@ -289,50 +142,27 @@ export default function App() {
       setPiketAccounts(Storage.getPiketAccounts());
       setLocationConfig(Storage.getLocationConfig());
       setLogos(Storage.getSchoolLogos());
-      setSyncToastMessage('Database berhasil dipulihkan & disinkronkan ke semua perangkat!');
-      setTimeout(() => setSyncToastMessage(null), 4000);
+      setSyncToastMessage('Database berhasil dipulihkan!');
+      setTimeout(() => setSyncToastMessage(null), 3000);
     } else {
       alert('Format file backup tidak valid. Pastikan file JSON yang dipilih sesuai.');
     }
   };
 
-  const handleToggleDatabaseMode = () => {
-    const nextMode = databaseMode === 'direct' ? 'cloud' : 'direct';
-    setDatabaseMode(nextMode);
-    Storage.saveDatabaseMode(nextMode);
-    setSyncToastMessage(
-      nextMode === 'direct'
-        ? 'Mode Database Langsung Aktif: Berjalan cepat tanpa beban kuota cloud.'
-        : 'Mode Cloud Aktif: Menghubungkan ke Google Cloud Firestore.'
-    );
-    setTimeout(() => setSyncToastMessage(null), 4000);
-  };
-
-  const handleResetDefaultData = () => {
-    Storage.resetToDefaultData();
-    CentralSync.resetToDefault().catch(() => {});
-    const newTeachers = Storage.getTeachers();
-    const newClasses = Storage.getClasses();
-    const newSubjects = Storage.getSubjects();
-    const newTimeSlots = Storage.getTimeSlots();
-    const newSchedules = Storage.getSchedules();
-
-    setTeachers(newTeachers);
-    setClasses(newClasses);
-    setSubjects(newSubjects);
-    setTimeSlots(newTimeSlots);
-    setSchedules(newSchedules);
-
-    if (databaseMode === 'cloud') {
-      FirestoreService.bulkSaveTeachers(newTeachers).catch(() => {});
-      FirestoreService.bulkSaveClasses(newClasses).catch(() => {});
-      FirestoreService.bulkSaveSubjects(newSubjects).catch(() => {});
-      FirestoreService.bulkSaveTimeSlots(newTimeSlots).catch(() => {});
-      FirestoreService.bulkSaveSchedules(newSchedules).catch(() => {});
-    }
-
-    setSyncToastMessage('Data Standar SMA Negeri 1 Julok Berhasil Dimuat (16 Guru, 12 Kelas, 16 Mapel, 10 Jam)!');
-    setTimeout(() => setSyncToastMessage(null), 4000);
+  // Clear all master data (clean slate)
+  const handleClearAllMasterData = async () => {
+    Storage.clearAll();
+    await CentralSync.clearAllMasterData().catch(() => {});
+    setTeachers([]);
+    setClasses([]);
+    setSubjects([]);
+    setTimeSlots([]);
+    setSchedules([]);
+    setAttendanceRecords([]);
+    setPiketAccounts([]);
+    setFaceProfiles([]);
+    setSyncToastMessage('Seluruh data master berhasil dikosongkan!');
+    setTimeout(() => setSyncToastMessage(null), 3000);
   };
 
   // Save session changes
@@ -340,7 +170,7 @@ export default function App() {
     Storage.saveSession(session);
   }, [session]);
 
-  // Attendance Handlers (Direct central database + local cache + optional cloud sync)
+  // Attendance Handlers (Direct central database + local cache)
   const handleRecordAttendance = async (record: AttendanceRecord) => {
     setAttendanceRecords((prev) => {
       const updated = [record, ...prev.filter((r) => r.id !== record.id)];
@@ -348,9 +178,6 @@ export default function App() {
       return updated;
     });
     CentralSync.saveAttendance(record).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.saveAttendanceRecord(record);
-    }
   };
 
   const handleDeleteRecord = async (id: string) => {
@@ -360,9 +187,6 @@ export default function App() {
       return updated;
     });
     CentralSync.deleteAttendance(id).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.deleteAttendanceRecord(id);
-    }
   };
 
   // Admin CRUD Handlers (Synchronized centrally across all devices)
@@ -374,9 +198,6 @@ export default function App() {
       return updated;
     });
     CentralSync.saveTeacher(teacher).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.saveTeacher(teacher);
-    }
   };
 
   const handleDeleteTeacher = async (id: string) => {
@@ -385,19 +206,12 @@ export default function App() {
       Storage.saveTeachers(updated);
       return updated;
     });
-    const toDeleteSchedules = schedules.filter((s) => s.teacherId === id);
     setSchedules((prev) => {
       const updated = prev.filter((s) => s.teacherId !== id);
       Storage.saveSchedules(updated);
       return updated;
     });
     CentralSync.deleteTeacher(id).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.deleteTeacher(id);
-      for (const sch of toDeleteSchedules) {
-        await FirestoreService.deleteSchedule(sch.id);
-      }
-    }
   };
 
   const handleBulkSaveTeachers = async (newTeachers: Teacher[]) => {
@@ -419,9 +233,6 @@ export default function App() {
       return updated;
     });
     CentralSync.bulkSaveTeachers(newTeachers).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.bulkSaveTeachers(newTeachers);
-    }
   };
 
   const handleReplaceAllTeachers = async (newTeachers: Teacher[]) => {
@@ -438,9 +249,6 @@ export default function App() {
       return updated;
     });
     CentralSync.saveClass(cls).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.saveClass(cls);
-    }
   };
 
   const handleDeleteClass = async (id: string) => {
@@ -449,19 +257,12 @@ export default function App() {
       Storage.saveClasses(updated);
       return updated;
     });
-    const toDeleteSchedules = schedules.filter((s) => s.classRoomId === id);
     setSchedules((prev) => {
       const updated = prev.filter((s) => s.classRoomId !== id);
       Storage.saveSchedules(updated);
       return updated;
     });
     CentralSync.deleteClass(id).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.deleteClass(id);
-      for (const sch of toDeleteSchedules) {
-        await FirestoreService.deleteSchedule(sch.id);
-      }
-    }
   };
 
   const handleBulkSaveClasses = async (newClasses: ClassRoom[]) => {
@@ -480,9 +281,6 @@ export default function App() {
       return updated;
     });
     CentralSync.bulkSaveClasses(newClasses).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.bulkSaveClasses(newClasses);
-    }
   };
 
   const handleReplaceAllClasses = async (newClasses: ClassRoom[]) => {
@@ -499,9 +297,6 @@ export default function App() {
       return updated;
     });
     CentralSync.saveSubject(sub).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.saveSubject(sub);
-    }
   };
 
   const handleDeleteSubject = async (id: string) => {
@@ -510,19 +305,12 @@ export default function App() {
       Storage.saveSubjects(updated);
       return updated;
     });
-    const toDeleteSchedules = schedules.filter((s) => s.subjectId === id);
     setSchedules((prev) => {
       const updated = prev.filter((s) => s.subjectId !== id);
       Storage.saveSchedules(updated);
       return updated;
     });
     CentralSync.deleteSubject(id).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.deleteSubject(id);
-      for (const sch of toDeleteSchedules) {
-        await FirestoreService.deleteSchedule(sch.id);
-      }
-    }
   };
 
   const handleBulkSaveSubjects = async (newSubjects: Subject[]) => {
@@ -543,9 +331,6 @@ export default function App() {
       return updated;
     });
     CentralSync.bulkSaveSubjects(newSubjects).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.bulkSaveSubjects(newSubjects);
-    }
   };
 
   const handleReplaceAllSubjects = async (newSubjects: Subject[]) => {
@@ -562,9 +347,6 @@ export default function App() {
       return updated;
     });
     CentralSync.saveSchedule(schedule).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.saveSchedule(schedule);
-    }
   };
 
   const handleBulkSaveSchedules = async (newSchedules: ScheduleItem[]) => {
@@ -574,18 +356,12 @@ export default function App() {
       return updated;
     });
     CentralSync.bulkSaveSchedules(newSchedules).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.bulkSaveSchedules(newSchedules);
-    }
   };
 
   const handleReplaceAllSchedules = async (newSchedules: ScheduleItem[]) => {
     setSchedules(newSchedules);
     Storage.saveSchedules(newSchedules);
     CentralSync.replaceAllSchedules(newSchedules).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.replaceAllSchedules(newSchedules);
-    }
   };
 
   const handleDeleteSchedule = async (id: string) => {
@@ -595,9 +371,6 @@ export default function App() {
       return updated;
     });
     CentralSync.deleteSchedule(id).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.deleteSchedule(id);
-    }
   };
 
   const handleSaveTimeSlot = async (slot: TimeSlot) => {
@@ -609,9 +382,6 @@ export default function App() {
       return updated;
     });
     CentralSync.saveTimeSlot(slot).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.saveTimeSlot(slot);
-    }
   };
 
   const handleDeleteTimeSlot = async (id: string) => {
@@ -621,9 +391,6 @@ export default function App() {
       return updated;
     });
     CentralSync.deleteTimeSlot(id).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.deleteTimeSlot(id);
-    }
   };
 
   const handleBulkSaveTimeSlots = async (newSlots: TimeSlot[]) => {
@@ -631,9 +398,6 @@ export default function App() {
     setTimeSlots(sorted);
     Storage.saveTimeSlots(sorted);
     CentralSync.bulkSaveTimeSlots(sorted).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.bulkSaveTimeSlots(sorted);
-    }
   };
 
   const handleReplaceAllTimeSlots = async (newSlots: TimeSlot[]) => {
@@ -652,9 +416,6 @@ export default function App() {
       return updated;
     });
     CentralSync.savePiketAccount(account).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.savePiketAccount(account);
-    }
   };
 
   const handleBulkSavePiketAccounts = async (accounts: PiketAccount[]) => {
@@ -673,9 +434,6 @@ export default function App() {
       return updated;
     });
     CentralSync.bulkSavePiketAccounts(accounts).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.bulkSavePiketAccounts(accounts);
-    }
   };
 
   const handleReplaceAllPiketAccounts = async (newPiket: PiketAccount[]) => {
@@ -711,9 +469,6 @@ export default function App() {
     setLocationConfig(newConfig);
     Storage.saveLocationConfig(newConfig);
     CentralSync.saveLocationConfig(newConfig).catch(() => {});
-    if (databaseMode === 'cloud') {
-      await FirestoreService.saveLocationConfig(newConfig);
-    }
     setSyncToastMessage('Pengaturan Lokasi GPS & Geofencing Berhasil Disimpan & Tersinkron!');
     setTimeout(() => setSyncToastMessage(null), 3500);
   };
@@ -738,19 +493,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100/70 flex flex-col selection:bg-blue-600 selection:text-white">
-      {/* Top Navigation with Cloud Sync Status & Official Logos */}
+      {/* Top Navigation Bar */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         session={session}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
-        databaseMode={databaseMode}
-        onToggleDatabaseMode={handleToggleDatabaseMode}
-        onExportBackup={handleExportBackup}
-        isCloudSynced={isCloudSynced}
-        onManualSync={handleManualSync}
-        isManualSyncing={isManualSyncing}
         logos={logos}
         onOpenWorkflow={() => setIsWorkflowModalOpen(true)}
       />
@@ -858,11 +607,9 @@ export default function App() {
             onSaveLocationConfig={handleSaveLocationConfig}
             onRecordAttendance={handleRecordAttendance}
             onDeleteAttendanceRecord={handleDeleteRecord}
-            databaseMode={databaseMode}
-            onToggleDatabaseMode={handleToggleDatabaseMode}
             onExportBackup={handleExportBackup}
             onRestoreBackup={handleRestoreBackup}
-            onResetDefaultData={handleResetDefaultData}
+            onClearAllData={handleClearAllMasterData}
             smileConfig={smileConfig}
             onSaveSmileConfig={handleSaveSmileConfig}
             faceProfiles={faceProfiles}
@@ -889,10 +636,8 @@ export default function App() {
           </p>
           <div className="pt-2 flex flex-wrap items-center justify-center gap-3 text-[11px] text-slate-400">
             <span className="flex items-center gap-1.5 font-medium">
-              <span className={`inline-block w-2 h-2 rounded-full ${databaseMode === 'direct' ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
-              {databaseMode === 'direct'
-                ? 'Database: Langsung (Penyimpanan Lokal Standalone • Tanpa Kuota Cloud)'
-                : 'Cloud Database: Firebase Firestore'}
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+              Sistem Presensi Mandiri Terpadu SMAN 1 Julok
             </span>
             <span>•</span>
             <span>Admin: rizafani@gmail.com</span>

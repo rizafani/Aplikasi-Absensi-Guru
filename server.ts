@@ -4,16 +4,18 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 
-import {
-  INITIAL_TEACHERS,
-  INITIAL_CLASSES,
-  INITIAL_SUBJECTS,
-  INITIAL_TIME_SLOTS,
-  INITIAL_SCHEDULES,
-  INITIAL_ATTENDANCE
-} from './src/data/initialData';
 import { DEFAULT_SCHOOL_LOCATION } from './src/utils/geo';
-import { DEFAULT_SMILE_CAPTURE_CONFIG, TeacherFaceProfile } from './src/types';
+import {
+  Teacher,
+  ClassRoom,
+  Subject,
+  TimeSlot,
+  ScheduleItem,
+  AttendanceRecord,
+  PiketAccount,
+  TeacherFaceProfile,
+  DEFAULT_SMILE_CAPTURE_CONFIG
+} from './src/types';
 import { syncPiketAccountsWithTeachers } from './src/utils/piketAuth';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,20 +29,19 @@ const DB_FILE = path.resolve(__dirname, 'data', 'school_database.json');
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Initial default database generator
+// Initial clean database generator (without default dummy/sample data)
 function getDefaultDatabase() {
-  const initialPiket = syncPiketAccountsWithTeachers(INITIAL_TEACHERS, []);
   return {
     version: Date.now(),
     lastUpdated: new Date().toISOString(),
     school: 'SMA NEGERI 1 JULOK',
-    teachers: INITIAL_TEACHERS,
-    classes: INITIAL_CLASSES,
-    subjects: INITIAL_SUBJECTS,
-    timeSlots: INITIAL_TIME_SLOTS,
-    schedules: INITIAL_SCHEDULES,
-    attendance: INITIAL_ATTENDANCE,
-    piketAccounts: initialPiket,
+    teachers: [] as Teacher[],
+    classes: [] as ClassRoom[],
+    subjects: [] as Subject[],
+    timeSlots: [] as TimeSlot[],
+    schedules: [] as ScheduleItem[],
+    attendance: [] as AttendanceRecord[],
+    piketAccounts: [] as PiketAccount[],
     locationConfig: DEFAULT_SCHOOL_LOCATION,
     logos: { acehLogo: '/logo-aceh.svg' },
     smileCaptureConfig: DEFAULT_SMILE_CAPTURE_CONFIG,
@@ -62,20 +63,37 @@ function loadDatabaseFromDisk() {
       currentDatabase = {
         ...getDefaultDatabase(),
         ...parsed,
-        // Ensure arrays are valid
-        teachers: Array.isArray(parsed.teachers) ? parsed.teachers : INITIAL_TEACHERS,
-        classes: Array.isArray(parsed.classes) ? parsed.classes : INITIAL_CLASSES,
-        subjects: Array.isArray(parsed.subjects) ? parsed.subjects : INITIAL_SUBJECTS,
-        timeSlots: Array.isArray(parsed.timeSlots) ? parsed.timeSlots : INITIAL_TIME_SLOTS,
-        schedules: Array.isArray(parsed.schedules) ? parsed.schedules : INITIAL_SCHEDULES,
-        attendance: Array.isArray(parsed.attendance) ? parsed.attendance : INITIAL_ATTENDANCE,
-        piketAccounts: Array.isArray(parsed.piketAccounts) ? parsed.piketAccounts : syncPiketAccountsWithTeachers(INITIAL_TEACHERS, []),
+        teachers: Array.isArray(parsed.teachers) ? parsed.teachers : [],
+        classes: Array.isArray(parsed.classes) ? parsed.classes : [],
+        subjects: Array.isArray(parsed.subjects) ? parsed.subjects : [],
+        timeSlots: Array.isArray(parsed.timeSlots) ? parsed.timeSlots : [],
+        schedules: Array.isArray(parsed.schedules) ? parsed.schedules : [],
+        attendance: Array.isArray(parsed.attendance) ? parsed.attendance : [],
+        piketAccounts: Array.isArray(parsed.piketAccounts) ? parsed.piketAccounts : [],
         faceProfiles: Array.isArray(parsed.faceProfiles) ? parsed.faceProfiles : []
       };
+
+      // Ensure any legacy demo/mock data is completely purged
+      if (currentDatabase.teachers.some((t: Teacher) => t.id === 'guru-1')) {
+        currentDatabase.teachers = [];
+      }
+      if (currentDatabase.classes.some((c: ClassRoom) => c.id === 'kls-x-1')) {
+        currentDatabase.classes = [];
+      }
+      if (currentDatabase.subjects.some((s: Subject) => s.id === 'mapel-pai')) {
+        currentDatabase.subjects = [];
+      }
+      if (currentDatabase.schedules.some((s: ScheduleItem) => s.id === 'sch-1')) {
+        currentDatabase.schedules = [];
+      }
+      if (currentDatabase.attendance.some((a: AttendanceRecord) => a.id === 'att-1')) {
+        currentDatabase.attendance = [];
+      }
+
       console.log(`[Server DB] Successfully loaded database from ${DB_FILE}. Teachers: ${currentDatabase.teachers.length}, Schedules: ${currentDatabase.schedules.length}`);
     } else {
       fs.writeFileSync(DB_FILE, JSON.stringify(currentDatabase, null, 2), 'utf-8');
-      console.log(`[Server DB] Initialized fresh central database at ${DB_FILE}`);
+      console.log(`[Server DB] Initialized clean database without default data at ${DB_FILE}`);
     }
   } catch (err) {
     console.error('[Server DB] Error loading database from disk:', err);
@@ -199,7 +217,14 @@ app.post('/api/sync', (req, res) => {
   }
 });
 
-// Reset to default school database
+// Clear all master data (clean slate)
+app.post('/api/clear-all', (_req, res) => {
+  currentDatabase = getDefaultDatabase();
+  broadcastDatabaseUpdate();
+  res.json({ success: true, version: currentDatabase.version });
+});
+
+// Reset database endpoint
 app.post('/api/reset-default', (_req, res) => {
   currentDatabase = getDefaultDatabase();
   broadcastDatabaseUpdate();

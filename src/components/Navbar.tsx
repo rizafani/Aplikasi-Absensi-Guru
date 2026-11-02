@@ -24,12 +24,6 @@ interface NavbarProps {
   session: UserSession;
   onOpenAuth: () => void;
   onLogout: () => void;
-  databaseMode?: 'direct' | 'cloud';
-  onToggleDatabaseMode?: () => void;
-  onExportBackup?: () => void;
-  isCloudSynced?: boolean;
-  onManualSync?: () => void;
-  isManualSyncing?: boolean;
   logos?: SchoolLogos;
   onOpenWorkflow?: () => void;
 }
@@ -40,12 +34,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   session,
   onOpenAuth,
   onLogout,
-  databaseMode = 'direct',
-  onToggleDatabaseMode,
-  onExportBackup,
-  isCloudSynced = false,
-  onManualSync,
-  isManualSyncing = false,
   logos,
   onOpenWorkflow
 }) => {
@@ -91,64 +79,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               alt="Logo Pemerintah Aceh"
               className="w-4 h-4 object-contain inline-block shrink-0"
             />
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
             <span>PEMERINTAH ACEH • DINAS PENDIDIKAN • CABDIN ACEH TIMUR</span>
-            {databaseMode === 'direct' ? (
-              <div className="flex items-center gap-1.5 ml-2">
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
-                  isCloudSynced
-                    ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/40'
-                    : 'bg-blue-500/25 text-blue-300 border-blue-400/40'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isCloudSynced ? 'bg-emerald-400 animate-pulse' : 'bg-blue-400'}`}></span>
-                  <Database className="w-3 h-3 text-emerald-400 inline" />
-                  <span>{isCloudSynced ? 'Real-Time (HP & PC Terhubung)' : 'Sinkron Otomatis Multi-Perangkat'}</span>
-                </span>
-                {onExportBackup && (
-                  <button
-                    onClick={onExportBackup}
-                    title="Cadangkan seluruh data ke file JSON di komputer"
-                    className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 bg-white/10 hover:bg-white/20 active:scale-95 text-blue-200 hover:text-white rounded text-[10px] font-medium border border-white/20 transition-all cursor-pointer"
-                  >
-                    <Download className="w-3 h-3 text-blue-300" />
-                    <span>Backup DB</span>
-                  </button>
-                )}
-                {onManualSync && (
-                  <button
-                    onClick={onManualSync}
-                    disabled={isManualSyncing}
-                    title="Segarkan / Muat ulang data database lokal"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-95 text-emerald-200 hover:text-white rounded text-[10px] font-medium border border-emerald-500/40 transition-all cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isManualSyncing ? 'animate-spin text-amber-300' : 'text-emerald-400'}`} />
-                    <span>Segarkan</span>
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 ml-2">
-                <span className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                  isCloudSynced
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-amber-500/20 text-amber-200 border-amber-500/30'
-                }`}>
-                  <CloudCheck className={`w-3 h-3 ${isCloudSynced ? 'text-emerald-400' : 'text-amber-400'}`} />
-                  {isCloudSynced ? 'Cloud Aktif' : 'Mode Offline / Sinkron Lokal'}
-                </span>
-                {onManualSync && (
-                  <button
-                    onClick={onManualSync}
-                    disabled={isManualSyncing}
-                    title="Perbarui & sinkronkan ulang data dari Google Cloud Firestore"
-                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-95 text-emerald-200 hover:text-white rounded text-[11px] font-medium border border-emerald-500/40 transition-all cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isManualSyncing ? 'animate-spin text-amber-300' : 'text-emerald-400'}`} />
-                    <span>{isManualSyncing ? 'Menyinkronkan...' : 'Sinkron Cloud'}</span>
-                  </button>
-                )}
-              </div>
-            )}
           </div>
           <div className="flex items-center gap-4 text-blue-200 font-mono text-[11px]">
             <span className="hidden sm:inline">{formattedDate}</span>

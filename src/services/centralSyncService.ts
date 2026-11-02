@@ -501,6 +501,14 @@ class CentralSyncService {
     }
   }
 
+  public async clearAllMasterData(): Promise<void> {
+    try {
+      await fetch('/api/clear-all', { method: 'POST' });
+    } catch (e) {
+      console.warn('[CentralSync] Failed to clear all master data on server:', e);
+    }
+  }
+
   public async resetToDefault(): Promise<void> {
     try {
       await fetch('/api/reset-default', { method: 'POST' });

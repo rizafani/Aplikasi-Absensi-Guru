@@ -141,11 +141,9 @@ interface AdminDashboardProps {
   onSaveLocationConfig?: (config: SchoolLocationConfig) => void;
   onRecordAttendance?: (record: AttendanceRecord) => void;
   onDeleteAttendanceRecord?: (id: string) => void;
-  databaseMode?: 'direct' | 'cloud';
-  onToggleDatabaseMode?: () => void;
   onExportBackup?: () => void;
   onRestoreBackup?: (json: string) => void;
-  onResetDefaultData?: () => void;
+  onClearAllData?: () => void;
   smileConfig?: SmileCaptureConfig;
   onSaveSmileConfig?: (config: SmileCaptureConfig) => void;
   faceProfiles?: TeacherFaceProfile[];
@@ -192,11 +190,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSaveLocationConfig,
   onRecordAttendance,
   onDeleteAttendanceRecord,
-  databaseMode = 'direct',
-  onToggleDatabaseMode,
   onExportBackup,
   onRestoreBackup,
-  onResetDefaultData,
+  onClearAllData,
   smileConfig = DEFAULT_SMILE_CAPTURE_CONFIG,
   onSaveSmileConfig,
   faceProfiles = [],
@@ -1280,40 +1276,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               Administrator Master
             </span>
             <span className="text-xs text-slate-300 font-mono">rizafani@gmail.com</span>
-            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1.5 ${
-              databaseMode === 'direct'
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-            }`}>
-              <Database className="w-3 h-3 text-emerald-400" />
-              <span>{databaseMode === 'direct' ? 'Database Langsung (Lokal Aktif • Tanpa Cloud)' : 'Mode Cloud Firestore'}</span>
-            </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight mt-1">
             Panel Pengaturan Master SMAN 1 JULOK
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Mode langsung aktif: Data tersimpan seketika di perangkat tanpa ketergantungan kuota cloud.
+            Kelola master guru, kelas, mata pelajaran, jam pelajaran, jadwal mengajar, dan presensi mandiri.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
-          {onResetDefaultData && (
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm('Muat ulang seluruh data master standar SMA Negeri 1 Julok (16 Guru, 12 Kelas, 16 Mapel, 10 Jam Pelajaran, dan Jadwal Lengkap)?')) {
-                  onResetDefaultData();
-                }
-              }}
-              className="px-3.5 py-2 bg-amber-600/90 hover:bg-amber-600 text-white text-xs font-semibold rounded-xl border border-amber-500/50 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              title="Isi data guru, kelas, mapel, dan jadwal standar SMA Negeri 1 Julok"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-amber-200" />
-              <span>Muat Data Standar SMAN 1 Julok</span>
-            </button>
-          )}
-
           {onExportBackup && (
             <button
               type="button"
@@ -1352,19 +1324,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </label>
           )}
 
-          {onToggleDatabaseMode && (
+          {onClearAllData && (
             <button
               type="button"
-              onClick={onToggleDatabaseMode}
-              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-colors flex items-center gap-1.5 cursor-pointer ${
-                databaseMode === 'direct'
-                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40 hover:bg-emerald-900/50'
-                  : 'bg-blue-950/60 text-blue-300 border-blue-500/40 hover:bg-blue-900/50'
-              }`}
-              title="Ganti mode database antara Langsung Lokal dan Cloud Firestore"
+              onClick={() => {
+                if (
+                  confirm(
+                    'PERHATIAN: Apakah Anda yakin ingin mengosongkan seluruh data master sekolah (Guru, Kelas, Mapel, Jam Pelajaran, dan Jadwal)?\n\nSeluruh data akan direset menjadi kosong untuk input/import data baru.'
+                  )
+                ) {
+                  onClearAllData();
+                }
+              }}
+              className="px-3.5 py-2 bg-rose-950/70 hover:bg-rose-900 text-rose-200 hover:text-white text-xs font-semibold rounded-xl border border-rose-800/60 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Kosongkan seluruh data master untuk mulai dari nol"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{databaseMode === 'direct' ? 'Mode Langsung' : 'Mode Cloud'}</span>
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>Kosongkan Seluruh Data</span>
             </button>
           )}
         </div>

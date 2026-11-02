@@ -63,6 +63,21 @@ function initStorageMaintenance(): void {
         localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
       }
     }
+    // Purge legacy demo default data (e.g., guru-1, Riza Fani, etc.)
+    const isPurged = localStorage.getItem('sman1julok_purged_defaults_v2');
+    if (!isPurged) {
+      const rawTeachers = localStorage.getItem(STORAGE_KEYS.TEACHERS);
+      if (rawTeachers && (rawTeachers.includes('guru-1') || rawTeachers.includes('Drs. Muhammad Nasir') || rawTeachers.includes('Cut Nurul Aini'))) {
+        localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.TIME_SLOTS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.PIKET_ACCOUNTS, JSON.stringify([]));
+      }
+      localStorage.setItem('sman1julok_purged_defaults_v2', 'true');
+    }
   } catch {
     // Silently ignore if localStorage is unavailable
   }
@@ -120,72 +135,42 @@ function safeSet<T>(key: string, value: T): void {
 
 export const Storage = {
   getTeachers(): Teacher[] {
-    const list = safeGet<Teacher[]>(STORAGE_KEYS.TEACHERS, []);
-    if (!list || list.length === 0) {
-      safeSet(STORAGE_KEYS.TEACHERS, INITIAL_TEACHERS);
-      return INITIAL_TEACHERS;
-    }
-    return list;
+    return safeGet<Teacher[]>(STORAGE_KEYS.TEACHERS, []);
   },
   saveTeachers(data: Teacher[]): void {
     safeSet(STORAGE_KEYS.TEACHERS, data);
   },
 
   getClasses(): ClassRoom[] {
-    const list = safeGet<ClassRoom[]>(STORAGE_KEYS.CLASSES, []);
-    if (!list || list.length === 0) {
-      safeSet(STORAGE_KEYS.CLASSES, INITIAL_CLASSES);
-      return INITIAL_CLASSES;
-    }
-    return list;
+    return safeGet<ClassRoom[]>(STORAGE_KEYS.CLASSES, []);
   },
   saveClasses(data: ClassRoom[]): void {
     safeSet(STORAGE_KEYS.CLASSES, data);
   },
 
   getSubjects(): Subject[] {
-    const list = safeGet<Subject[]>(STORAGE_KEYS.SUBJECTS, []);
-    if (!list || list.length === 0) {
-      safeSet(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS);
-      return INITIAL_SUBJECTS;
-    }
-    return list;
+    return safeGet<Subject[]>(STORAGE_KEYS.SUBJECTS, []);
   },
   saveSubjects(data: Subject[]): void {
     safeSet(STORAGE_KEYS.SUBJECTS, data);
   },
 
   getTimeSlots(): TimeSlot[] {
-    const list = safeGet<TimeSlot[]>(STORAGE_KEYS.TIME_SLOTS, []);
-    if (!list || list.length === 0) {
-      safeSet(STORAGE_KEYS.TIME_SLOTS, INITIAL_TIME_SLOTS);
-      return INITIAL_TIME_SLOTS;
-    }
-    return list;
+    return safeGet<TimeSlot[]>(STORAGE_KEYS.TIME_SLOTS, []);
   },
   saveTimeSlots(data: TimeSlot[]): void {
     safeSet(STORAGE_KEYS.TIME_SLOTS, data);
   },
 
   getSchedules(): ScheduleItem[] {
-    const list = safeGet<ScheduleItem[]>(STORAGE_KEYS.SCHEDULES, []);
-    if (!list || list.length === 0) {
-      safeSet(STORAGE_KEYS.SCHEDULES, INITIAL_SCHEDULES);
-      return INITIAL_SCHEDULES;
-    }
-    return list;
+    return safeGet<ScheduleItem[]>(STORAGE_KEYS.SCHEDULES, []);
   },
   saveSchedules(data: ScheduleItem[]): void {
     safeSet(STORAGE_KEYS.SCHEDULES, data);
   },
 
   getAttendance(): AttendanceRecord[] {
-    const list = safeGet<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
-    if (!list || list.length === 0) {
-      safeSet(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
-      return INITIAL_ATTENDANCE;
-    }
-    return list;
+    return safeGet<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
   },
   saveAttendance(data: AttendanceRecord[]): void {
     const sanitized = sanitizeAttendanceForStorage(data);
@@ -334,11 +319,7 @@ export const Storage = {
   },
 
   resetToDefaultData(): void {
-    safeSet(STORAGE_KEYS.TEACHERS, INITIAL_TEACHERS);
-    safeSet(STORAGE_KEYS.CLASSES, INITIAL_CLASSES);
-    safeSet(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS);
-    safeSet(STORAGE_KEYS.TIME_SLOTS, INITIAL_TIME_SLOTS);
-    safeSet(STORAGE_KEYS.SCHEDULES, INITIAL_SCHEDULES);
+    this.clearAll();
   },
 
   clearAll(): void {
@@ -348,5 +329,7 @@ export const Storage = {
     safeSet(STORAGE_KEYS.TIME_SLOTS, []);
     safeSet(STORAGE_KEYS.SCHEDULES, []);
     safeSet(STORAGE_KEYS.ATTENDANCE, []);
+    safeSet(STORAGE_KEYS.PIKET_ACCOUNTS, []);
+    safeSet(STORAGE_KEYS.FACE_PROFILES, []);
   }
 };
