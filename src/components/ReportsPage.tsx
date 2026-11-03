@@ -22,6 +22,8 @@ import {
   ExternalLink
 } from 'lucide-react';
 
+import { analyzeRecordLateness } from '../utils/latenessHelper';
+
 export interface AttendanceStatusInfo {
   label: 'Hadir' | 'Telat' | 'Absen' | 'Sakit' | 'Izin' | 'Dinas Luar';
   jamText: string;
@@ -29,6 +31,8 @@ export interface AttendanceStatusInfo {
   dotClass: string;
   isLate: boolean;
   lateMinutes?: number;
+  slotStartTime?: string;
+  warningText?: string;
 }
 
 export function parseAttendanceStatusAndJam(record: AttendanceRecord): AttendanceStatusInfo {
@@ -52,36 +56,18 @@ export function parseAttendanceStatusAndJam(record: AttendanceRecord): Attendanc
 
   // 2. Tentukan status (Hadir, Telat, Absen, Sakit, Izin, Dinas Luar)
   if (record.status === 'HADIR') {
-    let isLate = false;
-    let lateMinutes = 0;
+    const lateness = analyzeRecordLateness(record);
 
-    // Check slot start time e.g. "07:30"
-    const slotMatch = record.timeSlotName?.match(/(\d{1,2})[.:](\d{2})/);
-    const checkinMatch = record.timestamp?.match(/(\d{1,2})[.:](\d{2})/);
-
-    if (slotMatch && checkinMatch) {
-      const slotMins = parseInt(slotMatch[1], 10) * 60 + parseInt(slotMatch[2], 10);
-      const checkMins = parseInt(checkinMatch[1], 10) * 60 + parseInt(checkinMatch[2], 10);
-      if (checkMins > slotMins + 5) {
-        isLate = true;
-        lateMinutes = checkMins - slotMins;
-      }
-    } else if (
-      record.notes?.toLowerCase().includes('telat') ||
-      record.notes?.toLowerCase().includes('terlambat') ||
-      record.topic?.toLowerCase().includes('telat')
-    ) {
-      isLate = true;
-    }
-
-    if (isLate) {
+    if (lateness.isLate) {
       return {
         label: 'Telat',
         jamText,
-        badgeClass: 'bg-amber-100 text-amber-900 border border-amber-300 font-bold',
-        dotClass: 'bg-amber-500',
+        badgeClass: 'bg-rose-100 text-rose-900 border-2 border-rose-400 font-extrabold ring-1 ring-rose-200',
+        dotClass: 'bg-rose-600 animate-ping',
         isLate: true,
-        lateMinutes: lateMinutes > 0 ? lateMinutes : undefined
+        lateMinutes: lateness.lateMinutes > 0 ? lateness.lateMinutes : undefined,
+        slotStartTime: lateness.slotStartTime !== '-' ? lateness.slotStartTime : undefined,
+        warningText: lateness.warningText
       };
     }
 
@@ -445,9 +431,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <span className="text-[11px] font-bold text-emerald-800 block">Hadir Tepat</span>
           <span className="text-xl font-black text-emerald-700 mt-1 block">{hadirTepat}</span>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-amber-200 text-center bg-amber-50/30 shadow-2xs">
-          <span className="text-[11px] font-bold text-amber-800 block">Telat</span>
-          <span className="text-xl font-black text-amber-600 mt-1 block">{telat}</span>
+        <div className="bg-white p-3.5 rounded-xl border border-rose-300 text-center bg-rose-50/40 shadow-2xs ring-1 ring-rose-200">
+          <div className="flex items-center justify-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+            <span className="text-[11px] font-bold text-rose-800">Telat / Lewat Jam</span>
+          </div>
+          <span className="text-xl font-black text-rose-600 mt-1 block">{telat}</span>
         </div>
         <div className="bg-white p-3.5 rounded-xl border border-rose-200 text-center bg-rose-50/30 shadow-2xs">
           <span className="text-[11px] font-bold text-rose-800 block">Absen (Alpa)</span>
@@ -541,38 +530,84 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 filteredRecords.map((r, i) => {
                   const statusInfo = parseAttendanceStatusAndJam(r);
                   return (
-                    <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                    <tr
+                      key={r.id}
+                      className={`transition-colors ${
+                        statusInfo.isLate
+                          ? 'bg-rose-50/40 hover:bg-rose-50/70 border-l-4 border-l-rose-500'
+                          : 'hover:bg-slate-50/80'
+                      }`}
+                    >
                       <td className="p-2.5 text-center text-slate-400 font-mono">{i + 1}</td>
                       <td className="p-2.5 font-medium text-slate-700 whitespace-nowrap">
                         {r.date}
                       </td>
-                      <td className="p-2.5 font-bold text-slate-900 whitespace-nowrap">
-                        {r.teacherName}
+                      <td className="p-2.5 font-bold whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          {statusInfo.isLate && (
+                            <span title="Peringatan: Absensi dilakukan setelah jam pelajaran dimulai" className="shrink-0">
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+                            </span>
+                          )}
+                          <span className={statusInfo.isLate ? 'text-rose-950 font-black' : 'text-slate-900'}>
+                            {r.teacherName}
+                          </span>
+                        </div>
                       </td>
                       <td className="p-2.5 font-mono text-slate-500 whitespace-nowrap">{r.nip || '-'}</td>
                       <td className="p-2.5 font-bold text-blue-800">{r.classRoomName}</td>
                       <td className="p-2.5 text-slate-800">{r.subjectName}</td>
                       <td className="p-2.5 text-slate-600 font-mono whitespace-nowrap">
-                        {r.timeSlotName.split('(')[0]}
+                        <div>
+                          <span>{r.timeSlotName.split('(')[0]}</span>
+                          {statusInfo.slotStartTime && (
+                            <span className="block text-[10px] text-slate-400 font-sans">
+                              Mulai: {statusInfo.slotStartTime} WIB
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Status : Tampilkan Jam saat absensi dan status (Hadir/telat/absen) */}
                       <td className="p-2.5 text-center whitespace-nowrap">
                         <div className="flex flex-col items-center gap-1">
-                          {/* Jam saat absensi */}
-                          <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
-                            <Clock className="w-3 h-3 text-blue-600 shrink-0" />
-                            <span>{statusInfo.jamText}</span>
+                          {/* Jam saat absensi - Peringatan Visual Merah & Ikon jika Telat */}
+                          <span
+                            className={`inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md border shadow-2xs ${
+                              statusInfo.isLate
+                                ? 'text-rose-700 bg-rose-50 border-rose-300 ring-1 ring-rose-300'
+                                : 'text-slate-800 bg-slate-100 border-slate-200'
+                            }`}
+                            title={statusInfo.isLate ? `Peringatan: Absensi dilakukan pukul ${statusInfo.jamText}, setelah jam pelajaran dimulai (${statusInfo.slotStartTime || ''})` : undefined}
+                          >
+                            {statusInfo.isLate ? (
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 animate-pulse" />
+                            ) : (
+                              <Clock className="w-3 h-3 text-blue-600 shrink-0" />
+                            )}
+                            <span className={statusInfo.isLate ? 'text-rose-700 font-black' : ''}>
+                              {statusInfo.jamText}
+                            </span>
                           </span>
 
                           {/* Status Badge (Hadir / Telat / Absen) */}
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] ${statusInfo.badgeClass} shadow-2xs`}>
+                            {statusInfo.isLate && <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />}
                             <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dotClass}`}></span>
-                            <span>{statusInfo.label}</span>
+                            <span>{statusInfo.isLate ? 'TERLAMBAT' : statusInfo.label}</span>
                             {statusInfo.lateMinutes && (
-                              <span className="text-[9px] opacity-85">(+{statusInfo.lateMinutes}m)</span>
+                              <span className="text-[9px] font-bold text-rose-900 bg-rose-200/90 px-1 rounded">
+                                +{statusInfo.lateMinutes}m
+                              </span>
                             )}
                           </span>
+
+                          {/* Keterangan Tambahan Peringatan Lewat Jam Masuk */}
+                          {statusInfo.isLate && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold text-rose-600 bg-rose-100/80 border border-rose-200 px-1.5 py-0.2 rounded">
+                              Lewat Jam Mulai
+                            </span>
+                          )}
 
                           {/* GPS Validation status if available */}
                           {r.locationStatus && (
@@ -585,14 +620,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                         </div>
                       </td>
 
-                      {/* Materi Dan Keterangan diganti dengan foto saat selfie */}
+                      {/* Foto saat selfie dengan penanda peringatan jika telat */}
                       <td className="p-2.5 text-center">
                         {r.photoUrl ? (
                           <div className="flex flex-col items-center gap-1 group">
                             <div
                               onClick={() => setSelectedPhotoRecord(r)}
-                              className="relative w-14 h-14 rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-500 shadow-2xs cursor-pointer transition-all hover:scale-105 bg-slate-900 flex items-center justify-center shrink-0"
-                              title="Klik untuk memperbesar foto selfie kehadiran"
+                              className={`relative w-14 h-14 rounded-xl overflow-hidden border-2 shadow-2xs cursor-pointer transition-all hover:scale-105 bg-slate-900 flex items-center justify-center shrink-0 ${
+                                statusInfo.isLate
+                                  ? 'border-rose-400 ring-2 ring-rose-200'
+                                  : 'border-slate-200 hover:border-blue-500'
+                              }`}
+                              title={statusInfo.isLate ? 'Foto selfie presensi (Terlambat) - Klik untuk memperbesar' : 'Klik untuk memperbesar foto selfie kehadiran'}
                             >
                               <img
                                 src={r.photoUrl}
@@ -606,7 +645,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                             <button
                               type="button"
                               onClick={() => setSelectedPhotoRecord(r)}
-                              className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline font-bold flex items-center gap-0.5 cursor-pointer"
+                              className={`text-[10px] hover:underline font-bold flex items-center gap-0.5 cursor-pointer ${
+                                statusInfo.isLate ? 'text-rose-600' : 'text-blue-600'
+                              }`}
                             >
                               <span>Lihat Foto</span>
                             </button>

@@ -17,6 +17,8 @@ import {
   MapPin
 } from 'lucide-react';
 
+import { analyzeRecordLateness } from '../utils/latenessHelper';
+
 interface TodayStatsProps {
   teachers: Teacher[];
   classes: ClassRoom[];
@@ -40,7 +42,7 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(getTodayDayName());
-  const [filterTab, setFilterTab] = useState<'all' | 'attended' | 'not-yet' | 'piket-noted'>('all');
+  const [filterTab, setFilterTab] = useState<'all' | 'attended' | 'late' | 'not-yet' | 'piket-noted'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<{ url: string; title: string } | null>(null);
 
@@ -75,12 +77,13 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
     const records = dateAttendance.filter((r) => r.teacherId === teacher.id);
     const teacherScheds = daySchedules.filter((s) => s.teacherId === teacher.id);
 
-    const hasAttended = records.some((r) => r.status === 'HADIR');
+    const attendedRec = records.find((r) => r.status === 'HADIR');
     const piketRecord = records.find((r) => r.status !== 'HADIR');
+    const lateness = attendedRec ? analyzeRecordLateness(attendedRec, timeSlots) : null;
 
     let status: 'HADIR' | 'BELUM_ABSEN' | 'SAKIT' | 'IZIN' | 'DINAS_LUAR' | 'ALPA' = 'BELUM_ABSEN';
 
-    if (hasAttended) {
+    if (attendedRec) {
       status = 'HADIR';
     } else if (piketRecord) {
       status = piketRecord.status;
@@ -91,13 +94,16 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
       status,
       records,
       schedules: teacherScheds,
-      piketRecord
+      piketRecord,
+      lateness
     };
   });
 
   // Calculate metrics
   const totalScheduled = scheduledTeachers.length;
   const totalAttended = statsList.filter((s) => s.status === 'HADIR').length;
+  const totalLate = statsList.filter((s) => s.status === 'HADIR' && s.lateness?.isLate).length;
+  const totalOnTime = totalAttended - totalLate;
   const totalNotYet = statsList.filter((s) => s.status === 'BELUM_ABSEN').length;
   const totalPiketNoted = statsList.filter(
     (s) => ['SAKIT', 'IZIN', 'DINAS_LUAR', 'ALPA'].includes(s.status)
@@ -114,6 +120,7 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
     if (!matchesSearch) return false;
 
     if (filterTab === 'attended') return item.status === 'HADIR';
+    if (filterTab === 'late') return item.status === 'HADIR' && item.lateness?.isLate;
     if (filterTab === 'not-yet') return item.status === 'BELUM_ABSEN';
     if (filterTab === 'piket-noted') return ['SAKIT', 'IZIN', 'DINAS_LUAR', 'ALPA'].includes(item.status);
 
@@ -178,90 +185,118 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
       </div>
 
       {/* KPI Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {/* Total Terjadwal */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Total Terjadwal
             </span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-              <Users className="w-5 h-5" />
+            <div className="p-1.5 bg-blue-50 text-blue-600 rounded-xl">
+              <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-slate-900">{totalScheduled}</span>
-            <span className="text-xs text-slate-500">Guru Mengajar</span>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-slate-900">{totalScheduled}</span>
+            <span className="text-[11px] text-slate-500">Guru</span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-2">
-            Jadwal hari {selectedDay} di SMA N 1 Julok
+          <p className="text-[10px] text-slate-400 mt-1">
+            Jadwal hari {selectedDay}
           </p>
         </div>
 
-        {/* Sudah Absen (Hadir) */}
-        <div className="bg-white p-5 rounded-2xl border border-emerald-200/80 shadow-xs relative overflow-hidden bg-gradient-to-br from-emerald-50/30 to-white">
+        {/* Sudah Absen Tepat Waktu */}
+        <div className="bg-white p-4 rounded-2xl border border-emerald-200/80 shadow-xs relative overflow-hidden bg-gradient-to-br from-emerald-50/30 to-white">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">
-              Sudah Absen
+              Tepat Waktu
             </span>
-            <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl">
-              <CheckCircle2 className="w-5 h-5" />
+            <div className="p-1.5 bg-emerald-100 text-emerald-600 rounded-xl">
+              <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-emerald-700">{totalAttended}</span>
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-              {attendancePercentage}%
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-emerald-700">{totalOnTime}</span>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+              {totalScheduled > 0 ? Math.round((totalOnTime / totalScheduled) * 100) : 0}%
             </span>
           </div>
-          <p className="text-[11px] text-emerald-600 font-medium mt-2">
-            Tercatat hadir dengan bukti selfie kelas
+          <p className="text-[10px] text-emerald-600 font-medium mt-1">
+            Sebelum jam pelajaran
+          </p>
+        </div>
+
+        {/* Peringatan: Hadir Terlambat */}
+        <div
+          onClick={() => setFilterTab('late')}
+          className="bg-white p-4 rounded-2xl border-2 border-rose-300 shadow-xs relative overflow-hidden bg-rose-50/50 cursor-pointer hover:bg-rose-100/70 transition-colors ring-1 ring-rose-200"
+          title="Klik untuk menyaring guru yang terlambat presensi"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+              <span className="text-xs font-extrabold text-rose-700 uppercase tracking-wider">
+                Terlambat
+              </span>
+            </div>
+            <div className="p-1.5 bg-rose-100 text-rose-600 rounded-xl">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-rose-600">{totalLate}</span>
+            <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.2 rounded-full">
+              Lewat Jam
+            </span>
+          </div>
+          <p className="text-[10px] text-rose-600 font-semibold mt-1">
+            Setelah jam pelajaran dimulai
           </p>
         </div>
 
         {/* Belum Absen */}
-        <div className="bg-white p-5 rounded-2xl border border-amber-200/80 shadow-xs relative overflow-hidden bg-gradient-to-br from-amber-50/30 to-white">
+        <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-xs relative overflow-hidden bg-gradient-to-br from-amber-50/30 to-white">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-amber-800 uppercase tracking-wider">
               Belum Absen
             </span>
-            <div className="p-2 bg-amber-100 text-amber-700 rounded-xl">
-              <Clock className="w-5 h-5" />
+            <div className="p-1.5 bg-amber-100 text-amber-700 rounded-xl">
+              <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-amber-800">{totalNotYet}</span>
-            <span className="text-xs text-amber-700">Guru</span>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-amber-800">{totalNotYet}</span>
+            <span className="text-[11px] text-amber-700">Guru</span>
           </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-[11px] text-amber-700">Menunggu jam/presensi</span>
+          <div className="mt-1 flex items-center justify-between">
+            <span className="text-[10px] text-amber-700">Menunggu absensi</span>
             {totalNotYet > 0 && (
               <button
                 onClick={onOpenPiket}
-                className="text-[11px] font-bold text-blue-700 hover:underline flex items-center gap-0.5"
+                className="text-[10px] font-bold text-blue-700 hover:underline flex items-center gap-0.5 cursor-pointer"
               >
-                Piket <ArrowRight className="w-3 h-3" />
+                Piket <ArrowRight className="w-2.5 h-2.5" />
               </button>
             )}
           </div>
         </div>
 
         {/* Izin / Sakit / Piket */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Keterangan Piket
+              Ket. Piket
             </span>
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-              <AlertTriangle className="w-5 h-5" />
+            <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-xl">
+              <AlertTriangle className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-slate-800">{totalPiketNoted}</span>
-            <span className="text-xs text-slate-500">Izin / Sakit / Dinas</span>
+          <div className="mt-2.5 flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-slate-800">{totalPiketNoted}</span>
+            <span className="text-[11px] text-slate-500">Izin/Sakit</span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-2">
-            Divalidasi oleh petugas guru piket
+          <p className="text-[10px] text-slate-400 mt-1">
+            Dicatat guru piket
           </p>
         </div>
       </div>
@@ -272,7 +307,7 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
         <div className="flex flex-wrap gap-1 bg-slate-100 p-1 rounded-xl">
           <button
             onClick={() => setFilterTab('all')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               filterTab === 'all'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -282,18 +317,29 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
           </button>
           <button
             onClick={() => setFilterTab('attended')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
               filterTab === 'attended'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            Sudah Absen ({totalAttended})
+            Semua Hadir ({totalAttended})
+          </button>
+          <button
+            onClick={() => setFilterTab('late')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              filterTab === 'late'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'text-rose-600 hover:bg-rose-50'
+            }`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" />
+            Terlambat ({totalLate})
           </button>
           <button
             onClick={() => setFilterTab('not-yet')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
               filterTab === 'not-yet'
                 ? 'bg-amber-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -304,7 +350,7 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
           </button>
           <button
             onClick={() => setFilterTab('piket-noted')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
               filterTab === 'piket-noted'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -361,16 +407,34 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
                 };
               });
 
+              const isTeacherLate = status === 'HADIR' && item.lateness?.isLate;
+
               return (
-                <div key={teacher.id} className="p-4 sm:p-5 hover:bg-slate-50/60 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div
+                  key={teacher.id}
+                  className={`p-4 sm:p-5 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                    isTeacherLate
+                      ? 'bg-rose-50/30 hover:bg-rose-50/60 border-l-4 border-l-rose-500'
+                      : 'hover:bg-slate-50/60'
+                  }`}
+                >
                   {/* Left: Teacher Info & Schedule */}
                   <div className="flex items-start gap-4">
-                    <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-800 font-bold flex items-center justify-center shrink-0 shadow-2xs">
+                    <div className={`w-11 h-11 rounded-2xl font-bold flex items-center justify-center shrink-0 shadow-2xs ${
+                      isTeacherLate ? 'bg-rose-100 text-rose-800 ring-2 ring-rose-300' : 'bg-blue-100 text-blue-800'
+                    }`}>
                       {teacher.name.charAt(0)}
                     </div>
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="font-bold text-sm text-slate-900">{teacher.name}</h4>
+                        {isTeacherLate && (
+                          <span title="Absensi dilakukan setelah jam pelajaran dimulai" className="shrink-0">
+                            <AlertTriangle className="w-4 h-4 text-rose-600 animate-pulse" />
+                          </span>
+                        )}
+                        <h4 className={`font-bold text-sm ${isTeacherLate ? 'text-rose-950 font-black' : 'text-slate-900'}`}>
+                          {teacher.name}
+                        </h4>
                         <span className="font-mono text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                           NIP. {teacher.nip}
                         </span>
@@ -412,13 +476,30 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
                     {/* Status Badge */}
                     {status === 'HADIR' ? (
                       <div className="text-right">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          Hadir di Kelas
-                        </span>
-                        <div className="text-[11px] font-mono text-slate-500 mt-1">
-                          Jam {records[0]?.timestamp} WIB
-                        </div>
+                        {isTeacherLate ? (
+                          <>
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-900 border-2 border-rose-400 ring-1 ring-rose-200 shadow-2xs">
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse shrink-0" />
+                              Terlambat (+{item.lateness?.lateMinutes}m)
+                            </span>
+                            <div className="text-[11px] font-mono font-bold text-rose-600 mt-1">
+                              Absen: {item.lateness?.checkinTime} WIB
+                            </div>
+                            <div className="text-[10px] text-rose-500 font-semibold">
+                              Lewat Jam Mulai ({item.lateness?.slotStartTime} WIB)
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Hadir di Kelas
+                            </span>
+                            <div className="text-[11px] font-mono text-slate-500 mt-1">
+                              Jam {records[0]?.timestamp} WIB
+                            </div>
+                          </>
+                        )}
                         {records[0]?.locationStatus && (
                           <div className="mt-1 flex justify-end">
                             <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold ${
@@ -469,7 +550,11 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
                             title: `Selfie Kelas - ${teacher.name} (${records[0].classRoomName})`
                           })
                         }
-                        className="relative group w-12 h-12 rounded-xl overflow-hidden border border-slate-300 shadow-2xs hover:scale-105 transition-transform"
+                        className={`relative group w-12 h-12 rounded-xl overflow-hidden shadow-2xs hover:scale-105 transition-transform ${
+                          isTeacherLate
+                            ? 'border-2 border-rose-400 ring-2 ring-rose-200'
+                            : 'border border-slate-300'
+                        }`}
                         title="Klik untuk melihat foto selfie kelas"
                       >
                         <img

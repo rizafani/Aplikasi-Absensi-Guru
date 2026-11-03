@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AttendanceRecord, SchoolLogos } from '../types';
 import { loadImageAsDataUrl } from './imageUtils';
+import { analyzeRecordLateness } from './latenessHelper';
 
 export interface ReportFilterOptions {
   type: 'month' | 'teacher' | 'range' | 'all';
@@ -102,6 +103,8 @@ export async function generateAttendancePDF(
   // Calculate statistics
   const total = records.length;
   const hadir = records.filter(r => r.status === 'HADIR').length;
+  const lateCount = records.filter(r => analyzeRecordLateness(r).isLate).length;
+  const onTimeCount = hadir - lateCount;
   const sakit = records.filter(r => r.status === 'SAKIT').length;
   const izin = records.filter(r => r.status === 'IZIN').length;
   const dinas = records.filter(r => r.status === 'DINAS_LUAR').length;
@@ -115,7 +118,7 @@ export async function generateAttendancePDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.text(
-    `Total Catatan: ${total}   |   Hadir: ${hadir} (${percentage}%)   |   Sakit: ${sakit}   |   Izin: ${izin}   |   Dinas Luar: ${dinas}   |   Alpa: ${alpa}`,
+    `Total: ${total}   |   Hadir Tepat: ${onTimeCount}   |   Telat: ${lateCount}   |   Sakit/Izin: ${sakit + izin}   |   Dinas: ${dinas}   |   Alpa: ${alpa}   |   Presensi: ${percentage}%`,
     20,
     62
   );
@@ -134,20 +137,14 @@ export async function generateAttendancePDF(
     let isAbsent = false;
 
     if (rec.status === 'HADIR') {
-      const slotMatch = rec.timeSlotName?.match(/(\d{1,2})[.:](\d{2})/);
-      const checkinMatch = rec.timestamp?.match(/(\d{1,2})[.:](\d{2})/);
-      if (slotMatch && checkinMatch) {
-        const slotMins = parseInt(slotMatch[1], 10) * 60 + parseInt(slotMatch[2], 10);
-        const checkMins = parseInt(checkinMatch[1], 10) * 60 + parseInt(checkinMatch[2], 10);
-        if (checkMins > slotMins + 5) {
-          isLate = true;
-          statusLabel = `Telat (+${checkMins - slotMins}m)`;
-        } else {
-          statusLabel = 'Hadir';
-        }
-      } else if (rec.notes?.toLowerCase().includes('telat')) {
+      const lateness = analyzeRecordLateness(rec);
+      if (lateness.isLate) {
         isLate = true;
-        statusLabel = 'Telat';
+        statusLabel = lateness.lateMinutes > 0
+          ? `[TELAT +${lateness.lateMinutes}m]`
+          : '[TELAT]';
+      } else {
+        statusLabel = 'Hadir';
       }
     } else if (rec.status === 'ALPA') {
       isAbsent = true;
@@ -162,7 +159,7 @@ export async function generateAttendancePDF(
       statusLabel = 'Dinas Luar';
     }
 
-    const jamAndStatus = jamText ? `${jamText} WIB\n(${statusLabel})` : statusLabel;
+    const jamAndStatus = jamText ? `${jamText} WIB\n${statusLabel}` : statusLabel;
     return { jamAndStatus, isLate, isAbsent };
   }
 
@@ -218,10 +215,12 @@ export async function generateAttendancePDF(
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 7) {
         const val = String(data.cell.raw || '');
-        if (val.includes('Hadir') && !val.includes('Telat')) {
+        if (val.includes('Hadir') && !val.includes('TELAT') && !val.includes('Telat')) {
           data.cell.styles.textColor = [22, 101, 52]; // Dark green
-        } else if (val.includes('Telat')) {
-          data.cell.styles.textColor = [180, 83, 9]; // Amber
+        } else if (val.includes('TELAT') || val.includes('Telat')) {
+          data.cell.styles.textColor = [225, 29, 72]; // Vivid Red for warning
+          data.cell.styles.fillColor = [254, 242, 242]; // Subtle red background
+          data.cell.styles.fontStyle = 'bold';
         } else if (val.includes('Absen') || val.includes('Alpa')) {
           data.cell.styles.textColor = [185, 28, 28]; // Red
         } else if (val.includes('Sakit') || val.includes('Izin')) {
