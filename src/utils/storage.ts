@@ -38,7 +38,6 @@ const STORAGE_KEYS = {
 };
 
 /**
-/**
  * Sanitizes attendance records for localStorage storage.
  * Retains up to 100 recent entries with their selfie photos.
  */
@@ -62,21 +61,6 @@ function initStorageMaintenance(): void {
       } catch {
         localStorage.removeItem(STORAGE_KEYS.ATTENDANCE);
       }
-    }
-    // Purge legacy demo default data (e.g., guru-1, Riza Fani, etc.)
-    const isPurged = localStorage.getItem('sman1julok_purged_defaults_v2');
-    if (!isPurged) {
-      const rawTeachers = localStorage.getItem(STORAGE_KEYS.TEACHERS);
-      if (rawTeachers && (rawTeachers.includes('guru-1') || rawTeachers.includes('Drs. Muhammad Nasir') || rawTeachers.includes('Cut Nurul Aini'))) {
-        localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify([]));
-        localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify([]));
-        localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify([]));
-        localStorage.setItem(STORAGE_KEYS.TIME_SLOTS, JSON.stringify([]));
-        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify([]));
-        localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify([]));
-        localStorage.setItem(STORAGE_KEYS.PIKET_ACCOUNTS, JSON.stringify([]));
-      }
-      localStorage.setItem('sman1julok_purged_defaults_v2', 'true');
     }
   } catch {
     // Silently ignore if localStorage is unavailable

@@ -73,23 +73,6 @@ function loadDatabaseFromDisk() {
         faceProfiles: Array.isArray(parsed.faceProfiles) ? parsed.faceProfiles : []
       };
 
-      // Ensure any legacy demo/mock data is completely purged
-      if (currentDatabase.teachers.some((t: Teacher) => t.id === 'guru-1')) {
-        currentDatabase.teachers = [];
-      }
-      if (currentDatabase.classes.some((c: ClassRoom) => c.id === 'kls-x-1')) {
-        currentDatabase.classes = [];
-      }
-      if (currentDatabase.subjects.some((s: Subject) => s.id === 'mapel-pai')) {
-        currentDatabase.subjects = [];
-      }
-      if (currentDatabase.schedules.some((s: ScheduleItem) => s.id === 'sch-1')) {
-        currentDatabase.schedules = [];
-      }
-      if (currentDatabase.attendance.some((a: AttendanceRecord) => a.id === 'att-1')) {
-        currentDatabase.attendance = [];
-      }
-
       console.log(`[Server DB] Successfully loaded database from ${DB_FILE}. Teachers: ${currentDatabase.teachers.length}, Schedules: ${currentDatabase.schedules.length}`);
     } else {
       fs.writeFileSync(DB_FILE, JSON.stringify(currentDatabase, null, 2), 'utf-8');

@@ -97,6 +97,43 @@ class CentralSyncService {
       const data: FullDatabaseState = await res.json();
       this.currentVersion = data.version || Date.now();
 
+      // Check if server is currently unseeded/empty but client already has populated data in localStorage
+      const isServerEmpty =
+        (!data.teachers || data.teachers.length === 0) &&
+        (!data.classes || data.classes.length === 0) &&
+        (!data.schedules || data.schedules.length === 0);
+
+      const localTeachers = Storage.getTeachers();
+      const localClasses = Storage.getClasses();
+      const localSchedules = Storage.getSchedules();
+      const hasLocalData =
+        localTeachers.length > 0 || localClasses.length > 0 || localSchedules.length > 0;
+
+      if (isServerEmpty && hasLocalData) {
+        console.log('[CentralSync] Server database is empty while local storage has data. Synchronizing local data to central server...');
+        const localDump: Partial<FullDatabaseState> = {
+          teachers: localTeachers,
+          classes: localClasses,
+          subjects: Storage.getSubjects(),
+          timeSlots: Storage.getTimeSlots(),
+          schedules: localSchedules,
+          attendance: Storage.getAttendance(),
+          piketAccounts: Storage.getPiketAccounts(),
+          faceProfiles: Storage.getFaceProfiles(),
+          locationConfig: Storage.getLocationConfig(),
+          logos: Storage.getSchoolLogos(),
+          smileCaptureConfig: Storage.getSmileCaptureConfig()
+        };
+        await this.syncFullDatabase(localDump);
+        this.notifyStatus(true, 'Tersinkronisasi Real-Time (Semua Perangkat)');
+        return {
+          version: Date.now(),
+          lastUpdated: new Date().toISOString(),
+          school: 'SMA NEGERI 1 JULOK',
+          ...localDump
+        } as FullDatabaseState;
+      }
+
       // Synchronize to local storage for instant cache
       this.saveToLocalCache(data);
       this.notifyStatus(true, 'Tersinkronisasi Real-Time (Semua Perangkat)');
