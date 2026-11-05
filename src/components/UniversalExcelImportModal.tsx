@@ -9,11 +9,13 @@ import {
 } from '../types';
 import {
   downloadTeachersExcelTemplate,
+  downloadBkTuExcelTemplate,
   downloadClassesExcelTemplate,
   downloadSubjectsExcelTemplate,
   downloadTimeSlotsExcelTemplate,
   downloadPiketExcelTemplate,
   parseTeachersExcel,
+  parseBkTuExcel,
   parseClassesExcel,
   parseSubjectsExcel,
   parseTimeSlotsExcel,
@@ -51,6 +53,7 @@ import {
 
 export type ExcelImportTarget =
   | 'teachers'
+  | 'bk_tu'
   | 'classes'
   | 'subjects'
   | 'timeslots'
@@ -145,6 +148,13 @@ export const UniversalExcelImportModal: React.FC<UniversalExcelImportModalProps>
       downloadFn: downloadTeachersExcelTemplate,
       columns: ['Nama Guru & Gelar', 'NIP', 'Jenis Kelamin (L/P)', 'No. HP', 'Email', 'Status']
     },
+    bk_tu: {
+      title: 'Import Guru BK & Staff TU',
+      desc: 'Impor data Guru Bimbingan & Konseling (BK) serta Staff Tata Usaha (TU) untuk sistem absensi harian.',
+      icon: Users,
+      downloadFn: downloadBkTuExcelTemplate,
+      columns: ['Nama Lengkap & Gelar', 'NIP / NIK', 'Kategori (Guru BK / Staff TU)', 'Jabatan / Tugas', 'JK (L/P)', 'No. HP', 'Email', 'Status']
+    },
     classes: {
       title: 'Import Data Kelas',
       desc: 'Impor daftar rombongan belajar (rombel) kelas X, XI, dan XII beserta peminatan/jurusan.',
@@ -187,6 +197,10 @@ export const UniversalExcelImportModal: React.FC<UniversalExcelImportModalProps>
         const results = await parseTeachersExcel(file);
         if (results.length === 0) throw new Error('Tidak ada data guru yang terbaca dari file.');
         setParsedTeachers(results);
+      } else if (currentTarget === 'bk_tu') {
+        const results = await parseBkTuExcel(file);
+        if (results.length === 0) throw new Error('Tidak ada data Guru BK / Staff TU yang terbaca dari file.');
+        setParsedTeachers(results);
       } else if (currentTarget === 'classes') {
         const results = await parseClassesExcel(file);
         if (results.length === 0) throw new Error('Tidak ada data kelas yang terbaca dari file.');
@@ -227,6 +241,7 @@ export const UniversalExcelImportModal: React.FC<UniversalExcelImportModalProps>
   const getCurrentRows = () => {
     switch (currentTarget) {
       case 'teachers':
+      case 'bk_tu':
         return parsedTeachers;
       case 'classes':
         return parsedClasses;
@@ -263,7 +278,7 @@ export const UniversalExcelImportModal: React.FC<UniversalExcelImportModalProps>
     try {
       const isReplace = importMode === 'REPLACE';
 
-      if (currentTarget === 'teachers') {
+      if (currentTarget === 'teachers' || currentTarget === 'bk_tu') {
         const newTeacherList: Teacher[] = (validRows as ParsedTeacherRow[]).map((r, i) => {
           // Check if existing teacher matches NIP or Name to preserve ID
           const existing = teachers.find(
@@ -278,7 +293,9 @@ export const UniversalExcelImportModal: React.FC<UniversalExcelImportModalProps>
             gender: r.gender,
             phone: r.phone || '',
             email: r.email || '',
-            status: r.status
+            status: r.status,
+            category: r.category || (currentTarget === 'bk_tu' ? 'STAFF_TU' : 'GURU_MAPEL'),
+            jabatan: r.jabatan || existing?.jabatan
           };
         });
         await onImportTeachers(newTeacherList, isReplace);
@@ -625,7 +642,7 @@ export const UniversalExcelImportModal: React.FC<UniversalExcelImportModalProps>
                     <tr>
                       <th className="p-2.5 text-center w-10">No</th>
                       <th className="p-2.5 w-20">Status</th>
-                      {currentTarget === 'teachers' && (
+                      {(currentTarget === 'teachers' || currentTarget === 'bk_tu') && (
                         <>
                           <th className="p-2.5">Nama Guru</th>
                           <th className="p-2.5">NIP</th>
@@ -693,7 +710,7 @@ export const UniversalExcelImportModal: React.FC<UniversalExcelImportModalProps>
                         </td>
 
                         {/* Entity Columns */}
-                        {currentTarget === 'teachers' && (
+                        {(currentTarget === 'teachers' || currentTarget === 'bk_tu') && (
                           <>
                             <td className="p-2.5 font-bold text-slate-900">
                               {(row as ParsedTeacherRow).name || '-'}

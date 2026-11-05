@@ -567,11 +567,16 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
     setIsSubmitting(true);
 
     const teacher = teachers.find(t => t.id === selectedTeacherId)!;
+    const isDailyStaff = teacher.category === 'GURU_BK' || teacher.category === 'STAFF_TU';
     let className = '';
     let subjectName = '';
     let timeSlotName = '';
 
-    if (selectedScheduleId) {
+    if (isDailyStaff) {
+      className = teacher.category === 'GURU_BK' ? 'Layanan BK (Harian)' : 'Tata Usaha (Harian)';
+      subjectName = teacher.category === 'GURU_BK' ? 'Absensi Harian Guru BK' : 'Absensi Harian Staff TU';
+      timeSlotName = 'Harian (07:30 - 14:00)';
+    } else if (selectedScheduleId) {
       const sched = schedules.find(s => s.id === selectedScheduleId);
       const c = classes.find(cl => cl.id === sched?.classRoomId);
       const sub = subjects.find(sb => sb.id === sched?.subjectId);
@@ -604,9 +609,16 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
       status: 'HADIR',
       photoUrl: photoDataUrl,
       timestamp: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      topic: topic.trim() || 'Pembelajaran Tatap Muka Sesuai RPP / Modul Ajar',
+      topic:
+        topic.trim() ||
+        (teacher.category === 'GURU_BK'
+          ? 'Layanan Bimbingan & Konseling Harian'
+          : teacher.category === 'STAFF_TU'
+          ? 'Pelayanan Administrasi & Tata Usaha Harian'
+          : 'Pembelajaran Tatap Muka Sesuai RPP / Modul Ajar'),
       notes: notes.trim(),
       recordedBy: 'MANDIRI',
+      staffCategory: teacher.category,
       // Verified GPS Geolocation Data
       latitude: userCoords?.latitude,
       longitude: userCoords?.longitude,
@@ -650,6 +662,11 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
   };
 
   const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
+  const isDailyStaff = selectedTeacher?.category === 'GURU_BK' || selectedTeacher?.category === 'STAFF_TU';
+  const hasDailyAttendanceToday =
+    isDailyStaff &&
+    submittedRecord?.teacherId === selectedTeacherId &&
+    submittedRecord?.date === selectedDate;
 
   return (
     <div className="max-w-4xl mx-auto py-6 px-4 sm:px-6">
@@ -1086,6 +1103,27 @@ export const SelfAttendance: React.FC<SelfAttendanceProps> = ({
             {!selectedTeacherId ? (
               <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-xs text-slate-500 text-center">
                 Pilih nama guru di Langkah 1 untuk memunculkan otomatis jadwal mengajar (kelas, mapel, & jam pelajaran).
+              </div>
+            ) : isDailyStaff ? (
+              <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-600 text-white">
+                    {selectedTeacher?.category === 'GURU_BK' ? 'Absensi Harian Guru BK' : 'Absensi Harian Staff TU'}
+                  </span>
+                  <span className="text-xs font-mono font-semibold text-emerald-800">
+                    Sistem Harian (Non-Mapel)
+                  </span>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Bapak/Ibu <strong>{selectedTeacher?.name}</strong> terdaftar sebagai{' '}
+                  <strong>{selectedTeacher?.jabatan || (selectedTeacher?.category === 'GURU_BK' ? 'Guru Bimbingan & Konseling' : 'Staff Tata Usaha')}</strong>.
+                  Presensi menggunakan <strong>sistem harian</strong> (cukup 1 kali absen masuk per hari, tanpa memilih kelas/mata pelajaran).
+                </p>
+                {hasDailyAttendanceToday && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800 font-medium">
+                    ℹ️ Anda sudah tercatat melakukan presensi harian pada tanggal <strong>{selectedDate}</strong>.
+                  </div>
+                )}
               </div>
             ) : teacherSchedules.length > 0 ? (
               <div className="space-y-3">

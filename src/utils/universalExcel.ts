@@ -5,7 +5,8 @@ import {
   Subject,
   TimeSlot,
   PiketAccount,
-  DayOfWeek
+  DayOfWeek,
+  StaffCategory
 } from '../types';
 import { INDONESIAN_DAYS } from '../data/initialData';
 import {
@@ -33,6 +34,8 @@ export interface ParsedTeacherRow {
   phone: string;
   email: string;
   status: 'Aktif' | 'Nonaktif';
+  category?: StaffCategory;
+  jabatan?: string;
 
   isValid: boolean;
   validationErrors: string[];
@@ -171,6 +174,51 @@ export function downloadTeachersExcelTemplate(): void {
 
   XLSX.utils.book_append_sheet(wb, ws, 'Data Guru SMAN 1 Julok');
   XLSX.writeFile(wb, 'Template_Data_Guru_SMAN1_Julok.xlsx');
+}
+
+/**
+ * Downloads official Excel template for Data Guru BK & Staff TU
+ */
+export function downloadBkTuExcelTemplate(): void {
+  const wb = XLSX.utils.book_new();
+
+  const data = [
+    {
+      'Nama Lengkap & Gelar': 'Siti Rahmah, S.Pd.',
+      'NIP / NIK': '198604152010012008',
+      'Kategori (Guru BK / Staff TU)': 'Guru BK',
+      'Jabatan / Tugas': 'Guru Bimbingan & Konseling',
+      'Jenis Kelamin (L/P)': 'P',
+      'No. HP (WhatsApp)': '081260112233',
+      'Email': 'sitirahmah@sman1julok.sch.id',
+      'Status (Aktif/Nonaktif)': 'Aktif'
+    },
+    {
+      'Nama Lengkap & Gelar': 'Hendri Saputra, S.E.',
+      'NIP / NIK': '199007202019031004',
+      'Kategori (Guru BK / Staff TU)': 'Staff TU',
+      'Jabatan / Tugas': 'Staff Administrasi & Operator',
+      'Jenis Kelamin (L/P)': 'L',
+      'No. HP (WhatsApp)': '085277889900',
+      'Email': 'hendri.tu@sman1julok.sch.id',
+      'Status (Aktif/Nonaktif)': 'Aktif'
+    }
+  ];
+
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [
+    { wch: 30 }, // Nama
+    { wch: 22 }, // NIP
+    { wch: 28 }, // Kategori
+    { wch: 28 }, // Jabatan
+    { wch: 20 }, // JK
+    { wch: 20 }, // HP
+    { wch: 28 }, // Email
+    { wch: 22 }  // Status
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Guru BK & Staff TU');
+  XLSX.writeFile(wb, 'Template_Guru_BK_dan_Staff_TU_SMAN1_Julok.xlsx');
 }
 
 /**
@@ -447,6 +495,17 @@ export async function parseTeachersExcel(file: File): Promise<ParsedTeacherRow[]
       status = 'Nonaktif';
     }
 
+    const rawCategory = findValue(row, ['Kategori (Guru Mapel / Guru BK / Staff TU)', 'Kategori', 'Jenis PTK', 'Unit']);
+    const rawJabatan = findValue(row, ['Jabatan / Tugas', 'Jabatan', 'Tugas']);
+
+    let category: StaffCategory = 'GURU_MAPEL';
+    const catClean = rawCategory.trim().toUpperCase();
+    if (catClean.includes('BK') || catClean.includes('KONSELING')) {
+      category = 'GURU_BK';
+    } else if (catClean.includes('TU') || catClean.includes('TATA USAHA') || catClean.includes('STAFF') || catClean.includes('STAF')) {
+      category = 'STAFF_TU';
+    }
+
     parsed.push({
       rowIndex: idx + 2,
       rawName,
@@ -461,6 +520,75 @@ export async function parseTeachersExcel(file: File): Promise<ParsedTeacherRow[]
       phone: rawPhone,
       email: rawEmail,
       status,
+      category,
+      jabatan: rawJabatan || undefined,
+      isValid: validationErrors.length === 0,
+      validationErrors
+    });
+  });
+
+  return parsed;
+}
+
+/**
+ * Parse Data Guru BK & Staff TU from Excel
+ */
+export async function parseBkTuExcel(file: File): Promise<ParsedTeacherRow[]> {
+  const rawRows = await readWorksheetRows(file);
+  const parsed: ParsedTeacherRow[] = [];
+
+  rawRows.forEach((row, idx) => {
+    const rawName = findValue(row, ['Nama Lengkap & Gelar', 'Nama Guru & Gelar', 'Nama Lengkap', 'Nama']);
+    const rawNip = findValue(row, ['NIP / NIK', 'NIP', 'NIK', 'Nomor Pegawai', 'No Pegawai']);
+    const rawCategory = findValue(row, ['Kategori (Guru BK / Staff TU)', 'Kategori', 'Jenis', 'Unit']);
+    const rawJabatan = findValue(row, ['Jabatan / Tugas', 'Jabatan', 'Tugas']);
+    const rawGender = findValue(row, ['Jenis Kelamin (L/P)', 'Jenis Kelamin', 'JK', 'Gender']);
+    const rawPhone = findValue(row, ['No. HP (WhatsApp)', 'No HP', 'No. HP', 'HP', 'Telepon', 'WhatsApp']);
+    const rawEmail = findValue(row, ['Email', 'Surel', 'Alamat Email']);
+    const rawStatus = findValue(row, ['Status (Aktif/Nonaktif)', 'Status', 'Keaktifan']);
+
+    if (!rawName && !rawNip) return;
+
+    const validationErrors: string[] = [];
+    if (!rawName) {
+      validationErrors.push('Nama Lengkap tidak boleh kosong');
+    }
+
+    let category: StaffCategory = 'STAFF_TU';
+    const catClean = (rawCategory || rawJabatan || '').trim().toUpperCase();
+    if (catClean.includes('BK') || catClean.includes('KONSELING')) {
+      category = 'GURU_BK';
+    } else {
+      category = 'STAFF_TU';
+    }
+
+    let gender: 'L' | 'P' = 'L';
+    const gClean = rawGender.trim().toUpperCase();
+    if (gClean.startsWith('P') || gClean.includes('WANITA') || gClean.includes('PEREMPUAN')) {
+      gender = 'P';
+    }
+
+    let status: 'Aktif' | 'Nonaktif' = 'Aktif';
+    if (rawStatus.trim().toLowerCase().includes('non') || rawStatus.trim().toLowerCase().includes('tidak')) {
+      status = 'Nonaktif';
+    }
+
+    parsed.push({
+      rowIndex: idx + 2,
+      rawName,
+      rawNip,
+      rawGender,
+      rawPhone,
+      rawEmail,
+      rawStatus,
+      name: rawName,
+      nip: rawNip,
+      gender,
+      phone: rawPhone,
+      email: rawEmail,
+      status,
+      category,
+      jabatan: rawJabatan || (category === 'GURU_BK' ? 'Guru BK' : 'Staff TU'),
       isValid: validationErrors.length === 0,
       validationErrors
     });

@@ -2,6 +2,8 @@ export type DayOfWeek = 'Senin' | 'Selasa' | 'Rabu' | 'Kamis' | 'Jumat' | 'Sabtu
 
 export type AttendanceStatus = 'HADIR' | 'SAKIT' | 'IZIN' | 'DINAS_LUAR' | 'ALPA';
 
+export type StaffCategory = 'GURU_MAPEL' | 'GURU_BK' | 'STAFF_TU';
+
 export interface Teacher {
   id: string;
   nip: string;
@@ -10,6 +12,8 @@ export interface Teacher {
   phone?: string;
   email?: string;
   status: 'Aktif' | 'Nonaktif';
+  category?: StaffCategory; // Default: 'GURU_MAPEL'
+  jabatan?: string; // e.g., "Guru BK", "Staff Administrasi TU", "Operator Sekolah"
 }
 
 export interface ClassRoom {
@@ -73,6 +77,7 @@ export interface AttendanceRecord {
   notes?: string;
   topic?: string; // Materi pembelajaran
   recordedBy: 'MANDIRI' | 'GURU_PIKET' | 'ADMIN';
+  staffCategory?: StaffCategory;
   piketOfficerName?: string;
   piketNotes?: string;
   substituteTeacherName?: string;

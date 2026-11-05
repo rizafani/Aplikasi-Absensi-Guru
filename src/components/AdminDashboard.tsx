@@ -13,7 +13,8 @@ import {
   SchoolLocationConfig,
   TeacherFaceProfile,
   SmileCaptureConfig,
-  DEFAULT_SMILE_CAPTURE_CONFIG
+  DEFAULT_SMILE_CAPTURE_CONFIG,
+  StaffCategory
 } from '../types';
 import { INDONESIAN_DAYS, INITIAL_TIME_SLOTS, formatScheduleTimeSlots, getTodayDayName } from '../data/initialData';
 import { DEFAULT_LOGOS } from '../utils/storage';
@@ -309,7 +310,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     gender: 'L',
     email: '',
     phone: '',
-    status: 'Aktif'
+    status: 'Aktif',
+    category: 'GURU_MAPEL',
+    jabatan: ''
   });
 
   // Multi-selection & Bulk Edit state for Teachers
@@ -456,7 +459,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         gender: 'L',
         email: '',
         phone: '',
-        status: 'Aktif'
+        status: 'Aktif',
+        category: 'GURU_MAPEL',
+        jabatan: ''
       });
     }
     setIsTeacherModalOpen(true);
@@ -473,7 +478,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       gender: teacherForm.gender || 'L',
       email: teacherForm.email || '',
       phone: teacherForm.phone || '',
-      status: teacherForm.status || 'Aktif'
+      status: teacherForm.status || 'Aktif',
+      category: teacherForm.category || 'GURU_MAPEL',
+      jabatan: teacherForm.jabatan?.trim() || undefined
     };
     onSaveTeacher(teacherData);
     setIsTeacherModalOpen(false);
@@ -1671,7 +1678,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
                 >
                   <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                  <span>Import Excel (.xlsx)</span>
+                  <span>Import Guru Mapel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUniversalImportTarget('bk_tu');
+                    setIsUniversalExcelModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-teal-600" />
+                  <span>Import Guru BK & Staff TU</span>
                 </button>
                 <button
                   type="button"
@@ -4148,6 +4166,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Aktif">Aktif</option>
                     <option value="Nonaktif">Nonaktif</option>
                   </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Kategori PTK
+                  </label>
+                  <select
+                    value={teacherForm.category || 'GURU_MAPEL'}
+                    onChange={(e) =>
+                      setTeacherForm({ ...teacherForm, category: e.target.value as StaffCategory })
+                    }
+                    className="w-full px-3 py-2 text-xs border rounded-lg bg-white"
+                  >
+                    <option value="GURU_MAPEL">Guru Mata Pelajaran (Per Jam)</option>
+                    <option value="GURU_BK">Guru BK (Absensi Harian)</option>
+                    <option value="STAFF_TU">Staff TU (Absensi Harian)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Jabatan / Tugas (Opsional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Guru BK / Staff Administrasi"
+                    value={teacherForm.jabatan || ''}
+                    onChange={(e) => setTeacherForm({ ...teacherForm, jabatan: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border rounded-lg"
+                  />
                 </div>
               </div>
               <div>

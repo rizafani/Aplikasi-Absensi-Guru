@@ -228,7 +228,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             curriculumViceName: 'Desi Muliana, S.Pd',
             curriculumViceNip: '19862025212030'
           },
-          logos
+          logos,
+          teachers
         );
       } catch (err) {
         console.error('PDF export error:', err);
@@ -668,6 +669,60 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Daftar Guru & Staff yang Tidak Melakukan Absensi */}
+        {(!statusFilter || statusFilter.toUpperCase() === 'ALL') && (!selectedTeacherId || selectedTeacherId === 'all') && (() => {
+          const unattended = teachers.filter(
+            (t) => t.status === 'Aktif' && !filteredRecords.some((r) => r.teacherId === t.id)
+          );
+          if (unattended.length === 0) return null;
+          return (
+            <div className="pt-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-rose-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  Daftar Guru &amp; Staff yang Tidak Melakukan Absensi ({unattended.length} Orang)
+                </h4>
+              </div>
+              <div className="overflow-x-auto border border-rose-200 rounded-xl">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-rose-700 text-white text-[11px] uppercase tracking-wider">
+                      <th className="p-2.5 text-center w-10">No</th>
+                      <th className="p-2.5">Nama Guru / Staff</th>
+                      <th className="p-2.5 text-center">NIP</th>
+                      <th className="p-2.5 text-center">Kategori</th>
+                      <th className="p-2.5">Jabatan</th>
+                      <th className="p-2.5 text-center">Keterangan</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rose-100 bg-rose-50/30">
+                    {unattended.map((t, idx) => (
+                      <tr key={t.id} className="hover:bg-rose-50/70">
+                        <td className="p-2.5 text-center font-mono text-slate-600">{idx + 1}</td>
+                        <td className="p-2.5 font-bold text-slate-900">{t.name}</td>
+                        <td className="p-2.5 text-center font-mono text-slate-600">{t.nip || '-'}</td>
+                        <td className="p-2.5 text-center">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                            {t.category === 'GURU_BK'
+                              ? 'Guru BK (Harian)'
+                              : t.category === 'STAFF_TU'
+                              ? 'Staff TU (Harian)'
+                              : 'Guru Mapel'}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-slate-600">{t.jabatan || '-'}</td>
+                        <td className="p-2.5 text-center font-bold text-rose-700">
+                          Tidak / Belum Melakukan Absensi
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Tanda Tangan Resmi Pengesahan */}
         <div className="pt-8 flex flex-col sm:flex-row justify-between gap-8 text-xs text-slate-800">

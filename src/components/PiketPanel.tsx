@@ -95,10 +95,14 @@ export const PiketPanel: React.FC<PiketPanelProps> = ({
     }
   };
 
-  // Schedules for selected day
+  // Schedules for selected day + active daily staff (Guru BK & Staff TU)
   const daySchedules = schedules.filter((s) => s.day === selectedDay);
   const scheduledTeacherIds = Array.from(new Set(daySchedules.map((s) => s.teacherId)));
-  const scheduledTeachers = teachers.filter((t) => scheduledTeacherIds.includes(t.id));
+  const scheduledTeachers = teachers.filter(
+    (t) =>
+      scheduledTeacherIds.includes(t.id) ||
+      ((t.category === 'GURU_BK' || t.category === 'STAFF_TU') && t.status === 'Aktif')
+  );
 
   // Attendance records for the selected date
   const dateAttendance = attendanceRecords.filter((r) => r.date === selectedDate);
@@ -152,6 +156,7 @@ export const PiketPanel: React.FC<PiketPanelProps> = ({
 
     const substituteTeacher = teachers.find((t) => t.id === substituteTeacherId);
 
+    const isDailyStaff = teacher.category === 'GURU_BK' || teacher.category === 'STAFF_TU';
     const now = new Date();
     const newPiketRecord: AttendanceRecord = {
       id: `piket-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
@@ -160,14 +165,27 @@ export const PiketPanel: React.FC<PiketPanelProps> = ({
       nip: teacher.nip,
       date: selectedDate,
       dayName: selectedDay,
-      classRoomName: c?.name || 'Seluruh Kelas Hari Ini',
-      subjectName: sub?.name || 'Mata Pelajaran Terjadwal',
-      timeSlotName: slotInfo ? slotInfo.fullText : 'Jadwal Hari Ini',
+      classRoomName: isDailyStaff
+        ? teacher.category === 'GURU_BK'
+          ? 'Layanan BK (Harian)'
+          : 'Tata Usaha (Harian)'
+        : c?.name || 'Seluruh Kelas Hari Ini',
+      subjectName: isDailyStaff
+        ? teacher.category === 'GURU_BK'
+          ? 'Absensi Harian Guru BK'
+          : 'Absensi Harian Staff TU'
+        : sub?.name || 'Mata Pelajaran Terjadwal',
+      timeSlotName: isDailyStaff
+        ? 'Harian (07:30 - 14:00)'
+        : slotInfo
+        ? slotInfo.fullText
+        : 'Jadwal Hari Ini',
       status: status,
       photoUrl: '',
       timestamp: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
       notes: reason.trim(),
       recordedBy: 'GURU_PIKET',
+      staffCategory: teacher.category,
       piketOfficerName: officerNameInput.trim() || session.piketName || 'Petugas Piket',
       piketNotes: reason.trim() || `Keterangan tercatat: ${status}`,
       substituteTeacherName: substituteTeacher ? substituteTeacher.name : ''

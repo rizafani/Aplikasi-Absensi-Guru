@@ -64,10 +64,14 @@ export const TodayStats: React.FC<TodayStatsProps> = ({
     }
   };
 
-  // Get active teachers scheduled for this day
+  // Get active teachers scheduled for this day + active daily staff (Guru BK & Staff TU)
   const daySchedules = schedules.filter((s) => s.day === selectedDay);
   const scheduledTeacherIds = Array.from(new Set(daySchedules.map((s) => s.teacherId)));
-  const scheduledTeachers = teachers.filter((t) => scheduledTeacherIds.includes(t.id));
+  const scheduledTeachers = teachers.filter(
+    (t) =>
+      scheduledTeacherIds.includes(t.id) ||
+      ((t.category === 'GURU_BK' || t.category === 'STAFF_TU') && t.status === 'Aktif')
+  );
 
   // Attendance for the selected date
   const dateAttendance = attendanceRecords.filter((r) => r.date === selectedDate);

@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { AttendanceRecord, SchoolLogos } from '../types';
+import { AttendanceRecord, SchoolLogos, Teacher } from '../types';
 import { loadImageAsDataUrl } from './imageUtils';
 import { analyzeRecordLateness } from './latenessHelper';
 
@@ -35,7 +35,8 @@ export async function generateAttendancePDF(
     curriculumViceName: 'Desi Muliana, S.Pd',
     curriculumViceNip: '19862025212030'
   },
-  logos?: SchoolLogos
+  logos?: SchoolLogos,
+  teachers?: Teacher[]
 ) {
   // Orientation: Landscape for rich tabular attendance report
   const doc = new jsPDF({
@@ -111,14 +112,20 @@ export async function generateAttendancePDF(
   const alpa = records.filter(r => r.status === 'ALPA').length;
   const percentage = total > 0 ? ((hadir / total) * 100).toFixed(1) : '0';
 
+  const unattendedTeachers =
+    teachers && (!filter.statusFilter || filter.statusFilter.toUpperCase() === 'ALL') && filter.type !== 'teacher'
+      ? teachers.filter((t) => t.status === 'Aktif' && !records.some((r) => r.teacherId === t.id))
+      : [];
+
   // Summary box
   doc.setFillColor(245, 247, 250);
   doc.setDrawColor(200, 205, 215);
   doc.roundedRect(14, 55, pageWidth - 28, 11, 2, 2, 'FD');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8.2);
+  const unattendedSummary = teachers ? `   |   Tidak Absen: ${unattendedTeachers.length}` : '';
   doc.text(
-    `Total: ${total}   |   Hadir Tepat: ${onTimeCount}   |   Telat: ${lateCount}   |   Sakit/Izin: ${sakit + izin}   |   Dinas: ${dinas}   |   Alpa: ${alpa}   |   Presensi: ${percentage}%`,
+    `Total: ${total}   |   Hadir Tepat: ${onTimeCount}   |   Telat: ${lateCount}   |   Sakit/Izin: ${sakit + izin}   |   Dinas: ${dinas}   |   Alpa: ${alpa}${unattendedSummary}   |   Presensi: ${percentage}%`,
     20,
     62
   );
@@ -166,26 +173,26 @@ export async function generateAttendancePDF(
   // Table Data
   const tableRows = records.map((rec, index) => {
     const statusData = formatPdfStatus(rec);
-    const photoText = rec.photoUrl
-      ? (rec.locationStatus === 'VALID' ? 'Foto Selfie (GPS Sah)' : 'Foto Selfie Valid')
-      : 'Tanpa Foto';
+    const hasPhoto = Boolean(rec.photoUrl && rec.photoUrl.startsWith('data:image'));
+    const rawSlot = rec.timeSlotName || '-';
+    const slotFormatted = rawSlot.includes('(') ? rawSlot.replace('(', '\n(') : rawSlot;
 
     return [
       (index + 1).toString(),
       rec.date,
-      rec.timeSlotName.split('(')[0].trim(),
+      slotFormatted,
       rec.teacherName,
       rec.nip || '-',
       rec.classRoomName,
       rec.subjectName,
       statusData.jamAndStatus,
-      photoText
+      hasPhoto ? '' : 'Tanpa Foto'
     ];
   });
 
   autoTable(doc, {
     startY: 69,
-    head: [['No', 'Tanggal', 'Jam Pelajaran', 'Nama Guru', 'NIP', 'Kelas', 'Mata Pelajaran', 'Jam Absen & Status', 'Foto Selfie Presensi']],
+    head: [['No', 'Tanggal', 'Jam Mengajar & Waktu', 'Nama Guru', 'NIP', 'Kelas', 'Mata Pelajaran', 'Jam Absen & Status', 'Foto Selfie']],
     body: tableRows,
     theme: 'grid',
     headStyles: {
@@ -199,18 +206,19 @@ export async function generateAttendancePDF(
       fontSize: 7.5,
       cellPadding: 2,
       valign: 'middle',
-      overflow: 'linebreak'
+      overflow: 'linebreak',
+      minCellHeight: 16
     },
     columnStyles: {
       0: { halign: 'center', cellWidth: 8 },
       1: { halign: 'center', cellWidth: 20 },
-      2: { halign: 'center', cellWidth: 22 },
-      3: { cellWidth: 44, fontStyle: 'bold' },
-      4: { halign: 'center', cellWidth: 30 },
-      5: { halign: 'center', cellWidth: 16 },
+      2: { halign: 'center', cellWidth: 28 },
+      3: { cellWidth: 42, fontStyle: 'bold' },
+      4: { halign: 'center', cellWidth: 28 },
+      5: { halign: 'center', cellWidth: 18 },
       6: { cellWidth: 36 },
       7: { halign: 'center', cellWidth: 28, fontStyle: 'bold' },
-      8: { halign: 'center', cellWidth: 32 }
+      8: { halign: 'center', cellWidth: 24 }
     },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 7) {
@@ -231,15 +239,91 @@ export async function generateAttendancePDF(
       }
       if (data.section === 'body' && data.column.index === 8) {
         const val = String(data.cell.raw || '');
-        if (val.includes('Foto Selfie')) {
-          data.cell.styles.textColor = [30, 64, 175]; // Blue
-          data.cell.styles.fontStyle = 'bold';
-        } else {
+        if (val === 'Tanpa Foto') {
           data.cell.styles.textColor = [148, 163, 184]; // Gray
+        }
+      }
+    },
+    didDrawCell: (data) => {
+      if (data.section === 'body' && data.column.index === 8) {
+        const rec = records[data.row.index];
+        if (rec?.photoUrl && rec.photoUrl.startsWith('data:image')) {
+          try {
+            const imgSize = 13;
+            const imgX = data.cell.x + (data.cell.width - imgSize) / 2;
+            const imgY = data.cell.y + (data.cell.height - imgSize) / 2;
+            doc.addImage(rec.photoUrl, 'JPEG', imgX, imgY, imgSize, imgSize);
+          } catch {
+            // Ignore malformed image
+          }
         }
       }
     }
   });
+
+  // Section: Daftar Guru & Staff yang Tidak Melakukan Absensi
+  if (unattendedTeachers.length > 0) {
+    // @ts-expect-error autoTable adds lastAutoTable to doc
+    let nextY = (doc.lastAutoTable?.finalY || 150) + 10;
+    if (nextY + 30 > doc.internal.pageSize.getHeight()) {
+      doc.addPage();
+      nextY = 20;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(185, 28, 28);
+    doc.text(
+      `DAFTAR GURU & STAFF YANG TIDAK MELAKUKAN ABSENSI (${unattendedTeachers.length} Orang)`,
+      14,
+      nextY
+    );
+    doc.setTextColor(0, 0, 0);
+
+    const unattendedRows = unattendedTeachers.map((t, idx) => {
+      const catLabel =
+        t.category === 'GURU_BK'
+          ? 'Guru BK (Harian)'
+          : t.category === 'STAFF_TU'
+          ? 'Staff TU (Harian)'
+          : 'Guru Mata Pelajaran';
+      return [
+        (idx + 1).toString(),
+        t.name,
+        t.nip || '-',
+        catLabel,
+        t.jabatan || '-',
+        'Tidak / Belum Melakukan Absensi'
+      ];
+    });
+
+    autoTable(doc, {
+      startY: nextY + 4,
+      head: [['No', 'Nama Guru / Staff', 'NIP', 'Kategori', 'Jabatan', 'Keterangan']],
+      body: unattendedRows,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [185, 28, 28],
+        textColor: [255, 255, 255],
+        fontSize: 8,
+        halign: 'center',
+        valign: 'middle'
+      },
+      styles: {
+        fontSize: 7.5,
+        cellPadding: 2,
+        valign: 'middle'
+      },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 10 },
+        1: { cellWidth: 65, fontStyle: 'bold' },
+        2: { halign: 'center', cellWidth: 38 },
+        3: { halign: 'center', cellWidth: 38 },
+        4: { cellWidth: 45 },
+        5: { halign: 'center', cellWidth: 50, textColor: [185, 28, 28], fontStyle: 'bold' }
+      }
+    });
+  }
 
   // Footer / Signatures
   // @ts-expect-error autoTable adds lastAutoTable to doc
